@@ -1,0 +1,27 @@
+{
+  "name": "remote-work",
+  "version": "1.0.0",
+  "description": "remote work",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \\\"Error: no test specified\\\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/th3gh0s8/remote-work-js.git"
+  },
+  "keywords": [
+    "remot-work",
+    "electron",
+    "js"
+  ],
+  "author": "th3gh0s8",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/th3gh0s8/remote-work-js/issues"
+  },
+  "homepage": "https://github.com/th3gh0s8/remote-work-js#readme",
+  "devDependencies": {
+    "electron": "^39.2.4"
+  }
+}
