@@ -9,41 +9,126 @@
       box-sizing: border-box;
     }
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-height: 100vh;
-      margin: 0;
-      padding: 20px;
-      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-      color: #333;
+    html {
+      font-size: 14px; /* Base size for smaller screens */
     }
 
-    .container {
-      max-width: 600px;
+    @media (min-width: 768px) {
+      html {
+        font-size: 15px;
+      }
+    }
+
+    @media (min-width: 1200px) {
+      html {
+        font-size: 16px;
+      }
+    }
+
+    @media (min-width: 1400px) {
+      html {
+        font-size: 17px;
+      }
+    }
+
+    @media (min-width: 1800px) {
+      html {
+        font-size: 18px;
+      }
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #2c3e50; /* Dark blue-gray background */
+      color: #ecf0f1;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .app-window {
       width: 100%;
+      max-width: 650px;
+      min-height: 500px;
+      height: auto;
+      background: #34495e; /* Slightly lighter than background */
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid #4a627a;
+    }
+
+    .window-header {
+      background: #2c3e50;
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #4a627a;
+    }
+
+    .window-title {
+      margin: 0;
+      font-size: 1.4rem;
+      font-weight: 500;
+      color: #ecf0f1;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .window-title-icon {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #e74c3c;
+    }
+
+    .window-controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .window-btn {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-close { background: #e74c3c; }
+    .btn-minimize { background: #f1c40f; }
+    .btn-maximize { background: #2ecc71; }
+
+    .app-content {
+      flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 20px;
+      justify-content: center;
+      padding: 30px;
+      text-align: center;
+      min-height: 350px;
     }
 
     h1 {
-      margin: 0;
-      color: #2c3e50;
+      margin: 0 0 20px 0;
+      color: #ecf0f1;
       font-size: 2.2rem;
-      text-align: center;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+      font-weight: 600;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
 
     .controls {
       display: flex;
       gap: 15px;
-      flex-wrap: wrap;
-      justify-content: center;
-      margin: 10px 0;
+      margin: 20px 0;
     }
 
     button {
@@ -51,128 +136,288 @@
       font-size: 16px;
       cursor: pointer;
       border: none;
-      border-radius: 8px;
-      background-color: #3498db;
-      color: white;
-      transition: all 0.3s ease;
+      border-radius: 6px;
+      background: #3d566e;
+      color: #ecf0f1;
+      transition: all 0.2s ease;
       min-width: 120px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      font-weight: 500;
     }
 
     button:hover {
+      background: #4a627a;
       transform: translateY(-2px);
-      box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
     }
 
     button:active {
       transform: translateY(0);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     }
 
     #recordBtn {
       padding: 14px 30px;
       font-size: 18px;
       font-weight: bold;
-      border-radius: 30px;
-      background-color: #e74c3c;
+      border-radius: 8px;
+      background: #e74c3c;
       min-width: 140px;
-      transition: all 0.3s ease;
+    }
+
+    #recordBtn:hover {
+      background: #c0392b;
     }
 
     #recordBtn.recording {
-      background-color: #c0392b;
-      box-shadow: 0 0 20px rgba(231, 76, 60, 0.6);
+      background: #c0392b;
       animation: pulse 1.5s infinite;
     }
 
-    #recordBtn:hover:not(.recording) {
-      background-color: #c0392b;
-    }
-
-    #recordBtn:hover.recording {
-      background-color: #a5281b;
+    #recordBtn.recording:hover {
+      background: #a5281b;
     }
 
     button:disabled {
-      background-color: #bdc3c7;
+      background: #7f8c8d;
       cursor: not-allowed;
       transform: none;
-      box-shadow: none;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
     }
 
     #status {
-      margin-top: 10px;
-      padding: 12px 20px;
+      margin: 20px 0 15px;
+      padding: 10px 20px;
       font-size: 16px;
       font-weight: 500;
       text-align: center;
-      background-color: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      background: #2c3e50;
+      border-radius: 6px;
       min-width: 300px;
       max-width: 100%;
       word-break: break-word;
+      border: 1px solid #4a627a;
     }
 
     #recording-indicator {
       display: none;
       color: #e74c3c;
-      font-size: 20px;
+      font-size: 18px;
       font-weight: bold;
       margin-top: 10px;
       padding: 8px 16px;
-      background-color: rgba(231, 76, 60, 0.1);
+      background: rgba(231, 76, 60, 0.1);
       border-radius: 20px;
+      border: 1px solid rgba(231, 76, 60, 0.3);
       animation: blink 1s infinite;
     }
 
+    .app-footer {
+      padding: 15px;
+      text-align: center;
+      font-size: 14px;
+      color: #95a5a6;
+      background: #2c3e50;
+      border-top: 1px solid #4a627a;
+    }
+
     @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.6); }
-      70% { box-shadow: 0 0 0 12px rgba(231, 76, 60, 0); }
+      0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4); }
+      70% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
       100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
     }
 
     @keyframes blink {
-      50% { opacity: 0.6; }
+      50% { opacity: 0.7; }
     }
 
     /* Responsive adjustments */
     @media (max-width: 600px) {
-      h1 {
-        font-size: 1.8rem;
+      .app-window {
+        height: auto;
+        margin: 15px;
+        border-radius: 8px;
+        width: calc(100% - 30px);
       }
 
       .controls {
         flex-direction: column;
-        align-items: center;
+        width: 100%;
+        max-width: 300px;
       }
 
       button {
         width: 100%;
-        max-width: 250px;
       }
 
       #status {
         min-width: auto;
-        padding: 10px 15px;
+        width: 90%;
+      }
+    }
+
+    /* Adjust for larger screens */
+    @media (min-width: 1200px) {
+      .app-window {
+        max-width: 750px;
+        min-height: 550px;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+      }
+
+      .controls {
+        gap: 20px;
+      }
+
+      button {
+        padding: 14px 28px;
+        font-size: 17px;
+        min-width: 130px;
+      }
+
+      #recordBtn {
+        padding: 16px 34px;
+        font-size: 19px;
+        min-width: 150px;
+      }
+
+      #status {
+        padding: 12px 24px;
+        font-size: 17px;
+      }
+
+      #recording-indicator {
+        font-size: 19px;
+        padding: 10px 20px;
+      }
+
+      .window-title {
+        font-size: 1.6rem;
+      }
+    }
+
+    /* Fullscreen/maximized view */
+    @media (min-width: 1400px) {
+      .app-window {
+        max-width: 1000px;
+        width: calc(100% - 100px); /* Leave some margin on large screens */
+        min-height: 600px;
+      }
+
+      h1 {
+        font-size: 3rem;
+      }
+
+      .controls {
+        gap: 25px;
+      }
+
+      button {
+        padding: 18px 36px;
+        font-size: 19px;
+        min-width: 150px;
+      }
+
+      #recordBtn {
+        padding: 20px 42px;
+        font-size: 22px;
+        min-width: 170px;
+      }
+
+      #status {
+        padding: 14px 28px;
+        font-size: 19px;
+      }
+
+      #recording-indicator {
+        font-size: 21px;
+        padding: 12px 24px;
+      }
+
+      .window-title {
+        font-size: 1.8rem;
+      }
+    }
+
+    /* Very large screens */
+    @media (min-width: 1800px) {
+      .app-window {
+        max-width: 1200px;
+        width: calc(100% - 150px); /* Leave more margin on very large screens */
+        min-height: 700px;
+      }
+
+      h1 {
+        font-size: 3.5rem;
+      }
+
+      .controls {
+        gap: 30px;
+      }
+
+      button {
+        padding: 22px 42px;
+        font-size: 21px;
+        min-width: 170px;
+      }
+
+      #recordBtn {
+        padding: 24px 48px;
+        font-size: 25px;
+        min-width: 190px;
+      }
+
+      #status {
+        padding: 16px 32px;
+        font-size: 21px;
+      }
+
+      #recording-indicator {
+        font-size: 23px;
+        padding: 14px 28px;
+      }
+
+      .window-title {
+        font-size: 2rem;
       }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Remote Worker</h1>
-
-    <div class="controls">
-      <button id="recordBtn">
-        <span id="recordText">Start</span>
-      </button>
-      <button id="pauseBtn" disabled>
-        <span id="pauseText">Pause</span>
-      </button>
+  <div class="app-window">
+    <div class="window-header">
+      <div class="window-title">
+        <div class="window-title-icon"></div>
+        Remote Worker
+      </div>
+      <div class="window-controls">
+        <button class="window-btn btn-minimize"></button>
+        <button class="window-btn btn-maximize"></button>
+        <button class="window-btn btn-close"></button>
+      </div>
     </div>
 
-    <div id="status">Ready</div>
-    <div id="recording-indicator">🔴 CAPTURING</div>
+    <div class="app-content">
+      <h1>Remote Worker</h1>
+
+      <div class="controls">
+        <button id="recordBtn">
+          <span id="recordText">Start</span>
+        </button>
+        <button id="pauseBtn" disabled>
+          <span id="pauseText">Pause</span>
+        </button>
+      </div>
+
+      <div id="status">Ready</div>
+      <div id="recording-indicator">🔴 CAPTURING</div>
+    </div>
+
+    <div class="app-footer">
+      Screen Capture Application
+    </div>
   </div>
 
   <script src="renderer.js"></script>
