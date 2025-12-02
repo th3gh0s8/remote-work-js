@@ -52,7 +52,7 @@ ipcMain.handle('start-recording', async (event, sourceId) => {
 ipcMain.handle('save-recording', async (event, buffer) => {
   try {
     const { dialog } = require('electron');
-    
+
     const { filePath } = await dialog.showSaveDialog({
       filters: [
         { name: 'WebM Video', extensions: ['webm'] }
@@ -69,6 +69,34 @@ ipcMain.handle('save-recording', async (event, buffer) => {
     }
   } catch (error) {
     console.error('Error saving recording:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Handle auto-saving the recorded file to a default location
+ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+
+    // Create a 'Recordings' directory in the user's home folder
+    const recordingsDir = path.join(os.homedir(), 'Recordings');
+
+    // Create the directory if it doesn't exist
+    if (!fs.existsSync(recordingsDir)) {
+      fs.mkdirSync(recordingsDir, { recursive: true });
+    }
+
+    // Create the full file path
+    const filePath = path.join(recordingsDir, filename);
+
+    // Write the file
+    fs.writeFileSync(filePath, buffer);
+
+    return { success: true, filePath };
+  } catch (error) {
+    console.error('Error auto-saving recording:', error);
     return { success: false, error: error.message };
   }
 });
