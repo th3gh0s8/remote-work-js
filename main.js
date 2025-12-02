@@ -55,9 +55,10 @@ ipcMain.handle('save-recording', async (event, buffer) => {
 
     const { filePath } = await dialog.showSaveDialog({
       filters: [
+        { name: 'MKV Video', extensions: ['mkv'] },
         { name: 'WebM Video', extensions: ['webm'] }
       ],
-      defaultPath: `recording-${Date.now()}.webm`
+      defaultPath: `capture-${Date.now()}.mkv`
     });
 
     if (filePath) {
@@ -78,10 +79,9 @@ ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
   try {
     const fs = require('fs');
     const path = require('path');
-    const os = require('os');
 
-    // Create a 'Recordings' directory in the user's home folder
-    const recordingsDir = path.join(os.homedir(), 'Recordings');
+    // Create a 'captures' directory in the project root
+    const recordingsDir = path.join(__dirname, 'captures');
 
     // Create the directory if it doesn't exist
     if (!fs.existsSync(recordingsDir)) {

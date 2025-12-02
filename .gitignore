@@ -79,3 +79,6 @@ secrets.json
 !assets/
 !icons/
 !resources/
+
+# Captures directory
+captures/
