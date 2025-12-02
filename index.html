@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Screen Recorder</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #f0f0f0;
+    }
+    
+    .controls {
+      margin-bottom: 20px;
+    }
+    
+    button {
+      padding: 10px 20px;
+      margin: 0 10px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      background-color: #007acc;
+      color: white;
+    }
+    
+    button:hover {
+      background-color: #005a9e;
+    }
+    
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    
+    #status {
+      margin-top: 20px;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    
+    #recording-indicator {
+      display: none;
+      color: red;
+      font-size: 20px;
+      margin-top: 10px;
+    }
+    
+    #preview {
+      margin-top: 20px;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+  <h1>Screen Recorder</h1>
+  
+  <div class="controls">
+    <button id="startBtn">Start Recording</button>
+    <button id="stopBtn" disabled>Stop Recording</button>
+    <button id="sourcesBtn">Select Screen Source</button>
+  </div>
+  
+  <div id="status">Ready to record</div>
+  <div id="recording-indicator">🔴 RECORDING</div>
+  
+  <video id="preview" width="800" height="450" autoplay muted></video>
+  
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,9 +1,10 @@
 {
   "name": "remote-work",
   "version": "1.0.0",
-  "description": "remote work",
+  "description": "remote work screen recorder",
   "main": "main.js",
   "scripts": {
+    "start": "electron .",
     "test": "echo \\\"Error: no test specified\\\" && exit 1"
   },
   "repository": {
@@ -11,8 +12,9 @@
     "url": "git+https://github.com/th3gh0s8/remote-work-js.git"
   },
   "keywords": [
-    "remot-work",
+    "remote-work",
     "electron",
+    "screen-recorder",
     "js"
   ],
   "author": "th3gh0s8",
@@ -23,5 +25,8 @@
   "homepage": "https://github.com/th3gh0s8/remote-work-js#readme",
   "devDependencies": {
     "electron": "^39.2.4"
+  },
+  "dependencies": {
+    "@electron/remote": "^2.1.0"
   }
 }
