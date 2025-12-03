@@ -1,19 +1,22 @@
 const { ipcRenderer } = require('electron');
 
 // DOM elements
-const recordBtn = document.getElementById('recordBtn');
-const recordText = document.getElementById('recordText');
-const pauseBtn = document.getElementById('pauseBtn');
-const pauseText = document.getElementById('pauseText');
-const statusText = document.getElementById('status');
-const recordingIndicator = document.getElementById('recording-indicator');
+const recordBtn = document.getElementById('record-btn');
+const pauseBtn = document.getElementById('pause-btn');
+const stopBtn = document.getElementById('stop-btn');
+const statusText = document.getElementById('screenshot-status');
+const activityBadge = document.getElementById('activity-badge');
+const downloadSpeedElement = document.getElementById('download-speed');
+const uploadSpeedElement = document.getElementById('upload-speed');
+const totalDownloadedElement = document.getElementById('total-downloaded');
+const totalUploadedElement = document.getElementById('total-uploaded');
 
 let mediaRecorder;
 let recordedChunks = [];
 let isRecording = false;
 let isPaused = false;
 
-// Single button for both start and stop recording
+// Record button functionality
 recordBtn.addEventListener('click', async () => {
   if (!isRecording) {
     // Start recording - automatically use the primary screen
@@ -77,31 +80,25 @@ recordBtn.addEventListener('click', async () => {
         // Reset buttons to start state
         isRecording = false;
         isPaused = false;
-        recordBtn.classList.remove('recording');
-        recordText.textContent = 'Start';
+        recordBtn.style.display = 'inline-block';
+        pauseBtn.style.display = 'none';
+        stopBtn.style.display = 'none';
         pauseBtn.disabled = true;
-        pauseText.textContent = 'Pause';
-        recordingIndicator.style.display = 'none';
+        if (activityBadge) activityBadge.classList.remove('active');
       };
 
       // Start capture
       mediaRecorder.start();
       isRecording = true;
-      recordBtn.classList.add('recording');
-      recordText.textContent = 'Stop';
-      recordingIndicator.style.display = 'block';
-      statusText.textContent = 'Capturing in progress...';
-
-      // Enable the pause button when recording starts
+      recordBtn.style.display = 'none';
+      pauseBtn.style.display = 'inline-block';
+      stopBtn.style.display = 'inline-block';
       pauseBtn.disabled = false;
+      statusText.textContent = 'Capturing in progress...';
+      if (activityBadge) activityBadge.classList.add('active');
     } catch (error) {
       console.error('Error starting capture:', error);
       statusText.textContent = `Error starting capture: ${error.message}`;
-    }
-  } else {
-    // Stop capture
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
     }
   }
 });
@@ -113,14 +110,22 @@ pauseBtn.addEventListener('click', () => {
       // Pause capture
       mediaRecorder.pause();
       isPaused = true;
-      pauseText.textContent = 'Resume';
+      pauseBtn.textContent = 'Resume';
       statusText.textContent = 'Capture paused';
     } else {
       // Resume capture
       mediaRecorder.resume();
       isPaused = false;
-      pauseText.textContent = 'Pause';
+      pauseBtn.textContent = 'Pause';
       statusText.textContent = 'Capturing in progress...';
     }
   }
 });
+
+// Stop button functionality
+stopBtn.addEventListener('click', () => {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+});
+
