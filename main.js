@@ -127,11 +127,19 @@ async function logUserActivity(activityType, duration = 0) {
       VALUES (?, ?, ?, NOW())
     `;
 
+    // Estimate network usage for database query
+    const querySize = query.length + JSON.stringify([loggedInUser.ID, activityType, duration]).length;
+    totalBytesUploaded += querySize; // Add query size to uploaded bytes
+
     const [result] = await db.connection.execute(query, [
       loggedInUser.ID,      // salesrepTb (user ID)
       activityType,         // activity_type
       duration              // duration
     ]);
+
+    // Estimate network usage for database response
+    const resultSize = JSON.stringify(result).length;
+    totalBytesDownloaded += resultSize; // Add response size to downloaded bytes
 
     console.log(`Activity logged: ${activityType} for user ID: ${loggedInUser.ID}`);
     return { success: true, id: result.insertId };
@@ -164,6 +172,9 @@ ipcMain.handle('login-success', async (event, user) => {
     // Start network monitoring after DOM is ready
     startNetworkMonitoring();
   });
+
+  // Store mainWindow globally so database operations can send network usage updates
+  global.mainWindow = mainWindow;
 
   // Create tray icon
   const iconPath = path.join(__dirname, 'assets/logo.jpg');
@@ -343,6 +354,10 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
       ? 'https://your-remote-server.com/upload'  // Replace with actual remote server
       : 'http://localhost/upload.php';  // Local development server with PHP script in htdocs
 
+    // Track upload size before sending
+    const uploadSize = buffer.length; // Size of the video buffer being uploaded
+    totalBytesUploaded += uploadSize; // Add to total uploaded bytes
+
     // Perform the upload request using form data instead of JSON
     const FormData = require('form-data');
     const axios = require('axios');
@@ -365,6 +380,10 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
       },
       timeout: 120000 // Increased timeout to accommodate larger files
     });
+
+    // Track download size after receiving response
+    const responseDataSize = JSON.stringify(response.data).length;
+    totalBytesDownloaded += responseDataSize; // Add to total downloaded bytes
 
     console.log(`Recording uploaded successfully to server:`, response.data);
 
@@ -528,22 +547,28 @@ ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
 
 // Function to get network usage statistics
 function getNetworkUsage() {
+  // Return the actual tracked values
   // In a real implementation, we would gather actual network statistics
-  // For now, we'll simulate network usage based on the app's activities
+  // from the system, but for this app we'll track our own requests
 
-  // This is a simplified approach - in a real scenario, we would need to
-  // monitor actual network interfaces or track all network requests
+  // Calculate speeds based on the difference since last check
+  const now = Date.now();
+  const timeDiff = (now - (global.lastNetworkCheckTime || now - 1000)) / 1000; // in seconds
+  const timeDiffSafe = Math.max(timeDiff, 0.001); // Minimum to prevent division by zero
 
-  // For demonstration purposes, we'll return simulated values
-  // that increase over time to show the functionality
-  const simulatedDownload = totalBytesDownloaded + Math.floor(Math.random() * 10000);
-  const simulatedUpload = totalBytesUploaded + Math.floor(Math.random() * 5000);
+  const downloadSpeed = Math.max(0, (totalBytesDownloaded - previousBytesDownloaded) / timeDiffSafe / 1024); // KB/s
+  const uploadSpeed = Math.max(0, (totalBytesUploaded - previousBytesUploaded) / timeDiffSafe / 1024); // KB/s
+
+  // Update tracking variables
+  previousBytesDownloaded = totalBytesDownloaded;
+  previousBytesUploaded = totalBytesUploaded;
+  global.lastNetworkCheckTime = now;
 
   return {
-    totalDownloaded: simulatedDownload,
-    totalUploaded: simulatedUpload,
-    downloadSpeed: Math.floor(Math.random() * 500), // KB/s
-    uploadSpeed: Math.floor(Math.random() * 200)    // KB/s
+    totalDownloaded: totalBytesDownloaded,
+    totalUploaded: totalBytesUploaded,
+    downloadSpeed: Math.round(downloadSpeed),
+    uploadSpeed: Math.round(uploadSpeed)
   };
 }
 
@@ -570,6 +595,12 @@ function startNetworkMonitoring() {
 // Handle network usage request from renderer
 ipcMain.on('request-network-usage', (event) => {
   event.reply('network-usage-response', getNetworkUsage());
+});
+
+// Handle database operation network usage updates
+ipcMain.on('database-operation', (event, data) => {
+  totalBytesUploaded += data.uploadSize || 0;
+  totalBytesDownloaded += data.downloadSize || 0;
 });
 
 app.on('window-all-closed', () => {
