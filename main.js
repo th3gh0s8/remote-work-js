@@ -103,8 +103,14 @@ ipcMain.handle('login', async (event, repid, mobile) => {
   }
 });
 
+// Store logged-in user information
+let loggedInUser = null;
+
 // Handle successful login
 ipcMain.handle('login-success', async (event, user) => {
+  // Store the logged-in user
+  loggedInUser = user;
+
   // Close login window
   if (loginWindow && !loginWindow.isDestroyed()) {
     loginWindow.close();
@@ -112,6 +118,11 @@ ipcMain.handle('login-success', async (event, user) => {
 
   // Create main application window
   createWindow();
+
+  // Pass user information to the renderer
+  mainWindow.webContents.once('dom-ready', () => {
+    mainWindow.webContents.send('user-info', user);
+  });
 
   // Create tray icon
   const iconPath = path.join(__dirname, 'assets/logo.jpg');
@@ -223,29 +234,50 @@ ipcMain.handle('start-recording', async (event, sourceId) => {
   }
 });
 
-// Handle auto-saving the recorded file to a default location
+// Handle saving the recorded file to the web_images table
 ipcMain.handle('save-recording', async (event, buffer, filename) => {
   try {
-    const fs = require('fs');
-    const path = require('path');
+    // Extract user information from the currently logged-in user
+    // We'll need to identify the user somehow - for now, we'll use a global variable
+    // In a real application, you might track sessions differently
+    const userId = loggedInUser ? loggedInUser.ID : 1; // Use logged-in user ID or default to 1
+    const brId = loggedInUser ? loggedInUser.br_id : 1; // Use user's branch ID or default to 1
+    const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const currentTime = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
 
-    // Create a 'captures' directory in the project root
-    const recordingsDir = path.join(__dirname, 'captures');
+    // Insert the recording into the web_images table
+    const query = `
+      INSERT INTO web_images
+      (br_id, imgID, imgName, itmName, type, user_id, date, time, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
 
-    // Create the directory if it doesn't exist
-    if (!fs.existsSync(recordingsDir)) {
-      fs.mkdirSync(recordingsDir, { recursive: true });
-    }
+    // Use the filename as the imgName and extract the user ID from the login session
+    // For now, we'll use a placeholder imgID - in a real scenario, you'd generate a unique ID
+    const imgID = Date.now(); // Using timestamp as a simple unique ID
 
-    // Create the full file path
-    const filePath = path.join(recordingsDir, filename);
+    // Execute the query
+    const [result] = await db.connection.execute(query, [
+      brId,           // br_id
+      imgID,          // imgID
+      filename,       // imgName (the filename of the recording)
+      'Work Session Recording', // itmName (description of the recording)
+      'recording',    // type (indicating this is a recording)
+      userId,         // user_id (ID of the user who made the recording)
+      currentDate,    // date
+      currentTime,    // time
+      'active'        // status
+    ]);
 
-    // Write the file
-    fs.writeFileSync(filePath, buffer);
+    console.log(`Recording saved to database with ID: ${result.insertId} for user ID: ${userId}`);
 
-    return { success: true, filePath };
+    return {
+      success: true,
+      id: result.insertId,
+      message: `Recording saved to database with ID: ${result.insertId}`
+    };
   } catch (error) {
-    console.error('Error auto-saving recording:', error);
+    console.error('Error saving recording to database:', error);
     return { success: false, error: error.message };
   }
 });

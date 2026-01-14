@@ -11,6 +11,9 @@ let mediaRecorder = null;
 let recordedChunks = [];
 let recordingInterval = null;
 
+// Store user information
+let currentUser = null;
+
 // Wait for DOM to be fully loaded before accessing elements
 document.addEventListener('DOMContentLoaded', function() {
   // DOM elements
@@ -26,6 +29,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Track window visibility state
   let isWindowVisible = true;
+
+  // Listen for user information from main process
+  const { ipcRenderer } = require('electron');
+
+  ipcRenderer.on('user-info', (event, user) => {
+    currentUser = user;
+    console.log('Received user info:', user);
+    // Optionally update UI to show logged in user
+    statusText.textContent = `Logged in as: ${user.Name || user.RepID}. Ready to start recording...`;
+  });
 
   // Check-in button functionality
   checkInBtn.addEventListener('click', async () => {
@@ -287,12 +300,12 @@ async function startScreenRecording() {
         const arrayBuffer = await blob.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
-        // Use the correct IPC channel name that exists in main_simplified.js
+        // Save the recording to the database
         const result = await ipcRenderer.invoke('save-recording', buffer, filename);
 
         if (result.success) {
-          console.log(`Work session recording saved to: ${result.filePath}`);
-          statusText.textContent = `Work session saved: ${result.filePath}`;
+          console.log(`Work session recording saved to database with ID: ${result.id}`);
+          statusText.textContent = `Work session saved to database (ID: ${result.id})`;
         } else {
           console.error(`Error saving work session recording: ${result.error}`);
           statusText.textContent = `Error saving work session: ${result.error}`;
