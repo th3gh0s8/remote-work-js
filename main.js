@@ -43,6 +43,11 @@ function createWindow() {
 
   // Open DevTools for debugging screen capture
   mainWindow.webContents.openDevTools({ mode: 'detach' });
+
+  // Prevent the window from being garbage collected
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 // System tray functionality
@@ -52,7 +57,7 @@ app.whenReady().then(() => {
   createWindow();
 
   // Create tray icon
-  const iconPath = path.join(__dirname, 'assets/Powersoft_logo__1_.png');
+  const iconPath = path.join(__dirname, 'assets/logo.jpg');
   const iconImage = nativeImage.createFromPath(iconPath);
 
   // If icon doesn't exist, use a default icon
@@ -188,14 +193,29 @@ ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
 });
 
 app.on('window-all-closed', () => {
+  // Don't quit the app when window is closed, just hide it
+  // The app will continue running in the system tray
+  // Only quit on macOS when user explicitly quits
   if (process.platform !== 'darwin') {
-    // Don't quit the app when window is closed, just hide it
-    // The app will continue running in the system tray
+    // On Windows/Linux, just hide the window, don't quit
+    return;
   }
+  app.quit();
 });
 
 app.on('activate', () => {
+  // On macOS it's common to re-create a window in the app when the
+  // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+  } else {
+    // If there are windows but they're hidden, show them
+    const windows = BrowserWindow.getAllWindows();
+    for (const win of windows) {
+      if (!win.isVisible()) {
+        win.show();
+      }
+      win.focus();
+    }
   }
 });
