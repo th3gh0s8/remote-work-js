@@ -318,51 +318,172 @@ ipcMain.handle('start-recording', async (event, sourceId) => {
   }
 });
 
-// Handle saving the recorded file to the web_images table
+// Handle uploading the recorded file to a server
 ipcMain.handle('save-recording', async (event, buffer, filename) => {
   try {
     // Extract user information from the currently logged-in user
-    // We'll need to identify the user somehow - for now, we'll use a global variable
-    // In a real application, you might track sessions differently
     const userId = loggedInUser ? loggedInUser.ID : 1; // Use logged-in user ID or default to 1
     const brId = loggedInUser ? loggedInUser.br_id : 1; // Use user's branch ID or default to 1
-    const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const currentTime = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
 
-    // Insert the recording into the web_images table
-    const query = `
-      INSERT INTO web_images
-      (br_id, imgID, imgName, itmName, type, user_id, date, time, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
+    // Define server configuration
+    // In production, this would be a remote server URL
+    // For local development, we'll use localhost with upload script
+    const isProduction = process.env.NODE_ENV === 'production';
+    const serverUrl = isProduction
+      ? 'https://your-remote-server.com/upload'  // Replace with actual remote server
+      : 'http://localhost/upload.php';  // Local development server with PHP script in htdocs
 
-    // Use the filename as the imgName and extract the user ID from the login session
-    // For now, we'll use a placeholder imgID - in a real scenario, you'd generate a unique ID
-    const imgID = Date.now(); // Using timestamp as a simple unique ID
+    // Perform the upload request using form data instead of JSON
+    const FormData = require('form-data');
+    const axios = require('axios');
 
-    // Execute the query
-    const [result] = await db.connection.execute(query, [
-      brId,           // br_id
-      imgID,          // imgID
-      filename,       // imgName (the filename of the recording)
-      'Work Session Recording', // itmName (description of the recording)
-      'recording',    // type (indicating this is a recording)
-      userId,         // user_id (ID of the user who made the recording)
-      currentDate,    // date
-      currentTime,    // time
-      'active'        // status
-    ]);
+    const formData = new FormData();
+    formData.append('file', buffer.toString('base64')); // Convert buffer to base64 string
+    formData.append('userId', userId);
+    formData.append('brId', brId);
+    formData.append('filename', filename);
+    formData.append('type', 'recording');
+    formData.append('description', 'Work Session Recording');
 
-    console.log(`Recording saved to database with ID: ${result.insertId} for user ID: ${userId}`);
+    const response = await axios.post(serverUrl, formData, {
+      headers: {
+        ...formData.getHeaders(),
+        // Add any authentication headers if needed
+        'Authorization': `Bearer ${process.env.UPLOAD_TOKEN || 'local-token'}`, // Example auth header
+      },
+      timeout: 60000 // 60 second timeout (increased for large files)
+    });
 
-    return {
-      success: true,
-      id: result.insertId,
-      message: `Recording saved to database with ID: ${result.insertId}`
-    };
+    console.log(`Recording uploaded successfully to server:`, response.data);
+
+    // If upload is successful, also log to the web_images table for reference
+    if (response.data && response.data.fileId) {
+      // Insert a record in web_images table with the server file ID
+      const query = `
+        INSERT INTO web_images
+        (br_id, imgID, imgName, itmName, type, user_id, date, time, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const currentTime = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
+      const imgID = response.data.fileId || Date.now(); // Use server's file ID if available
+
+      const [result] = await db.connection.execute(query, [
+        brId,           // br_id
+        imgID,          // imgID (server file ID)
+        filename,       // imgName (original filename)
+        'Work Session Recording', // itmName (description)
+        'recording',    // type
+        userId,         // user_id
+        currentDate,    // date
+        currentTime,    // time
+        'uploaded'      // status (changed to uploaded since it's on server)
+      ]);
+
+      console.log(`Recording record saved to database with ID: ${result.insertId}`);
+
+      return {
+        success: true,
+        id: result.insertId,
+        fileId: response.data.fileId,
+        message: `Recording uploaded to server and saved to database with ID: ${result.insertId}`
+      };
+    } else {
+      // If server didn't return a file ID, use timestamp
+      const query = `
+        INSERT INTO web_images
+        (br_id, imgID, imgName, itmName, type, user_id, date, time, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const currentTime = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
+      const imgID = Date.now(); // Fallback to timestamp
+
+      const [result] = await db.connection.execute(query, [
+        brId,           // br_id
+        imgID,          // imgID
+        filename,       // imgName (original filename)
+        'Work Session Recording', // itmName (description)
+        'recording',    // type
+        userId,         // user_id
+        currentDate,    // date
+        currentTime,    // time
+        'uploaded'      // status
+      ]);
+
+      console.log(`Recording record saved to database with ID: ${result.insertId}`);
+
+      return {
+        success: true,
+        id: result.insertId,
+        message: `Recording uploaded to server and saved to database with ID: ${result.insertId}`
+      };
+    }
   } catch (error) {
-    console.error('Error saving recording to database:', error);
-    return { success: false, error: error.message };
+    console.error('Error uploading recording to server:', error);
+
+    // If upload fails, save to local captures directory as fallback
+    try {
+      const fs = require('fs');
+      const path = require('path');
+
+      // Create a 'captures' directory in the project root
+      const recordingsDir = path.join(__dirname, 'captures');
+
+      // Create the directory if it doesn't exist
+      if (!fs.existsSync(recordingsDir)) {
+        fs.mkdirSync(recordingsDir, { recursive: true });
+      }
+
+      // Create the full file path
+      const filePath = path.join(recordingsDir, filename);
+
+      // Write the file
+      fs.writeFileSync(filePath, buffer);
+
+      // Also log to the database with 'local' status
+      const userId = loggedInUser ? loggedInUser.ID : 1;
+      const brId = loggedInUser ? loggedInUser.br_id : 1;
+      const currentDate = new Date().toISOString().split('T')[0];
+      const currentTime = new Date().toTimeString().split(' ')[0];
+
+      const query = `
+        INSERT INTO web_images
+        (br_id, imgID, imgName, itmName, type, user_id, date, time, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const imgID = Date.now();
+
+      const [result] = await db.connection.execute(query, [
+        brId,           // br_id
+        imgID,          // imgID
+        filename,       // imgName
+        'Work Session Recording', // itmName
+        'recording',    // type
+        userId,         // user_id
+        currentDate,    // date
+        currentTime,    // time
+        'local-fallback' // status indicating it was saved locally due to upload failure
+      ]);
+
+      return {
+        success: false,
+        id: result.insertId,
+        error: error.message,
+        message: `Upload failed, saved locally instead. Error: ${error.message}`
+      };
+    } catch (fallbackError) {
+      console.error('Fallback save also failed:', fallbackError);
+      return {
+        success: false,
+        error: error.message,
+        fallbackError: fallbackError.message,
+        message: `Upload failed and local fallback also failed. Upload error: ${error.message}, Fallback error: ${fallbackError.message}`
+      };
+    }
   }
 });
 

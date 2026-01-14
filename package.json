@@ -28,6 +28,8 @@
   },
   "dependencies": {
     "@electron/remote": "^2.1.0",
-    "mysql2": "^3.9.8"
+    "mysql2": "^3.9.8",
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0"
   }
 }
