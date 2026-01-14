@@ -4,27 +4,63 @@ const path = require('path');
 let mainWindow;
 
 function createWindow() {
+  const { screen } = require('electron');
+
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      enableRemoteModule: true,
+      // Enable screen capture permissions
+      autoplayPolicy: 'no-user-gesture-required'
     },
-    icon: path.join(__dirname, 'assets/icon.png') // Optional: Add an icon
+    icon: path.join(__dirname, 'assets/icon.png'), // Optional: Add an icon
+    webSecurity: false, // Allow mixed content for screen capture
+    // Enable screen capture
+    alwaysOnTop: false,
+    fullscreenable: true
+  });
+
+  // Configure session to allow screen capture
+  const ses = mainWindow.webContents.session;
+  ses.setDisplayMediaRequestHandler((request, callback) => {
+    // For screen capture, we'll allow access to screen sources
+    callback({ video: true, audio: false });
+  });
+
+  // Enable media access for screen capture
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    if (permission === 'media' || permission === 'desktop-capture') {
+      callback(true); // Grant media and desktop capture access
+    } else {
+      callback(false); // Deny other permissions
+    }
   });
 
   mainWindow.loadFile('index.html');
+
+  // Open DevTools for debugging screen capture
+  mainWindow.webContents.openDevTools({ mode: 'detach' });
 }
 
 // Handle getting available sources for screen capture
 ipcMain.handle('get-sources', async () => {
   try {
+    console.log('Getting screen sources...');
     const sources = await desktopCapturer.getSources({
-      types: ['screen', 'window'],
+      types: ['screen'],
       thumbnailSize: { width: 150, height: 150 }
     });
-    
+
+    console.log(`Found ${sources.length} screen sources:`, sources.map(s => ({name: s.name, id: s.id})));
+
+    if (sources.length === 0) {
+      console.error('No screen sources found!');
+      return [];
+    }
+
     return sources.map(source => ({
       name: source.name,
       id: source.id,
@@ -32,6 +68,7 @@ ipcMain.handle('get-sources', async () => {
     }));
   } catch (error) {
     console.error('Error getting sources:', error);
+    console.error('Error details:', error.message, error.stack);
     throw error;
   }
 });

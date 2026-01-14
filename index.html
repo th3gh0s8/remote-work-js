@@ -164,7 +164,7 @@
         }
       }
 
-      #record-btn {
+      #check-in-btn {
         background: linear-gradient(135deg, #27ae60, #2ecc71);
         color: white;
         border: none;
@@ -184,25 +184,25 @@
         min-height: 44px; /* Ensure minimum touch target size */
       }
 
-      #record-btn:hover {
+      #check-in-btn:hover {
         background: linear-gradient(135deg, #219653, #27ae60);
         transform: translateY(-2px);
         box-shadow: 0 6px 16px rgba(39, 174, 96, 0.4);
       }
 
-      #record-btn:active {
+      #check-in-btn:active {
         transform: translateY(0);
         box-shadow: 0 2px 8px rgba(39, 174, 96, 0.3);
       }
 
-      #record-btn:disabled {
+      #check-in-btn:disabled {
         background: #bdc3c7;
         cursor: not-allowed;
         transform: none;
         box-shadow: none;
       }
 
-      #stop-btn {
+      #check-out-btn {
         background: linear-gradient(135deg, #e74c3c, #c0392b);
         color: white;
         border: none;
@@ -222,25 +222,25 @@
         min-height: 44px; /* Ensure minimum touch target size */
       }
 
-      #stop-btn:hover {
+      #check-out-btn:hover {
         background: linear-gradient(135deg, #c0392b, #a93226);
         transform: translateY(-2px);
         box-shadow: 0 6px 16px rgba(231, 76, 60, 0.4);
       }
 
-      #stop-btn:active {
+      #check-out-btn:active {
         transform: translateY(0);
         box-shadow: 0 2px 8px rgba(231, 76, 60, 0.3);
       }
 
-      #stop-btn:disabled {
+      #check-out-btn:disabled {
         background: #bdc3c7;
         cursor: not-allowed;
         transform: none;
         box-shadow: none;
       }
 
-      #pause-btn {
+      #break-btn {
         background: linear-gradient(135deg, #f39c12, #f1c40f);
         color: white;
         border: none;
@@ -260,18 +260,18 @@
         min-height: 44px; /* Ensure minimum touch target size */
       }
 
-      #pause-btn:hover {
+      #break-btn:hover {
         background: linear-gradient(135deg, #d68910, #f39c12);
         transform: translateY(-2px);
         box-shadow: 0 6px 16px rgba(243, 156, 18, 0.4);
       }
 
-      #pause-btn:active {
+      #break-btn:active {
         transform: translateY(0);
         box-shadow: 0 2px 8px rgba(243, 156, 18, 0.3);
       }
 
-      #pause-btn:disabled {
+      #break-btn:disabled {
         background: #bdc3c7;
         cursor: not-allowed;
         transform: none;
@@ -600,9 +600,9 @@
 
         <div class="controls">
           <div class="row">
-            <button id="record-btn">Start</button>
-            <button id="pause-btn" disabled style="display:none;">Pause</button>
-            <button id="stop-btn" style="display:none;">Stop</button>
+            <button id="check-in-btn">Check In</button>
+            <button id="break-btn" style="display:none;">Break Time</button>
+            <button id="check-out-btn" style="display:none;">Check Out</button>
           </div>
 
           <!-- Network usage section -->
