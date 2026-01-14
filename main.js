@@ -1,6 +1,14 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, net } = require('electron');
 const path = require('path');
+const si = require('systeminformation');
 const DatabaseConnection = require('./db_connection');
+
+// Variables to track network usage
+let totalBytesDownloaded = 0;
+let totalBytesUploaded = 0;
+let previousBytesDownloaded = 0;
+let previousBytesUploaded = 0;
+let networkUsageInterval = null;
 
 let mainWindow;
 let loginWindow = null;
@@ -120,11 +128,19 @@ async function logUserActivity(activityType, duration = 0) {
       VALUES (?, ?, ?, NOW())
     `;
 
+    // Estimate network usage for database query
+    const querySize = query.length + JSON.stringify([loggedInUser.ID, activityType, duration]).length;
+    totalBytesUploaded += querySize; // Add query size to uploaded bytes
+
     const [result] = await db.connection.execute(query, [
       loggedInUser.ID,      // salesrepTb (user ID)
       activityType,         // activity_type
       duration              // duration
     ]);
+
+    // Estimate network usage for database response
+    const resultSize = JSON.stringify(result).length;
+    totalBytesDownloaded += resultSize; // Add response size to downloaded bytes
 
     console.log(`Activity logged: ${activityType} for user ID: ${loggedInUser.ID}`);
     return { success: true, id: result.insertId };
@@ -153,7 +169,13 @@ ipcMain.handle('login-success', async (event, user) => {
   // Pass user information to the renderer
   mainWindow.webContents.once('dom-ready', () => {
     mainWindow.webContents.send('user-info', user);
+
+    // Start network monitoring after DOM is ready
+    startNetworkMonitoring();
   });
+
+  // Store mainWindow globally so database operations can send network usage updates
+  global.mainWindow = mainWindow;
 
   // Create tray icon
   const iconPath = path.join(__dirname, 'assets/logo.jpg');
@@ -318,51 +340,182 @@ ipcMain.handle('start-recording', async (event, sourceId) => {
   }
 });
 
-// Handle saving the recorded file to the web_images table
+// Handle uploading the recorded file to a server
 ipcMain.handle('save-recording', async (event, buffer, filename) => {
   try {
     // Extract user information from the currently logged-in user
-    // We'll need to identify the user somehow - for now, we'll use a global variable
-    // In a real application, you might track sessions differently
     const userId = loggedInUser ? loggedInUser.ID : 1; // Use logged-in user ID or default to 1
     const brId = loggedInUser ? loggedInUser.br_id : 1; // Use user's branch ID or default to 1
-    const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const currentTime = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
 
-    // Insert the recording into the web_images table
-    const query = `
-      INSERT INTO web_images
-      (br_id, imgID, imgName, itmName, type, user_id, date, time, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
+    // Define server configuration
+    // In production, this would be a remote server URL
+    // For local development, we'll use localhost with upload script
+    const isProduction = process.env.NODE_ENV === 'production';
+    const serverUrl = isProduction
+      ? 'https://your-remote-server.com/upload'  // Replace with actual remote server
+      : 'http://localhost/upload.php';  // Local development server with PHP script in htdocs
 
-    // Use the filename as the imgName and extract the user ID from the login session
-    // For now, we'll use a placeholder imgID - in a real scenario, you'd generate a unique ID
-    const imgID = Date.now(); // Using timestamp as a simple unique ID
+    // Track upload size before sending
+    const uploadSize = buffer.length; // Size of the video buffer being uploaded
+    totalBytesUploaded += uploadSize; // Add to total uploaded bytes
 
-    // Execute the query
-    const [result] = await db.connection.execute(query, [
-      brId,           // br_id
-      imgID,          // imgID
-      filename,       // imgName (the filename of the recording)
-      'Work Session Recording', // itmName (description of the recording)
-      'recording',    // type (indicating this is a recording)
-      userId,         // user_id (ID of the user who made the recording)
-      currentDate,    // date
-      currentTime,    // time
-      'active'        // status
-    ]);
+    // Perform the upload request using form data instead of JSON
+    const FormData = require('form-data');
+    const axios = require('axios');
 
-    console.log(`Recording saved to database with ID: ${result.insertId} for user ID: ${userId}`);
+    const formData = new FormData();
+    // Convert buffer to base64 string to ensure binary data integrity during transmission
+    const base64Data = buffer.toString('base64');
+    formData.append('file', base64Data); // Send base64 string as form field
+    formData.append('userId', userId);
+    formData.append('brId', brId);
+    formData.append('filename', filename);
+    formData.append('type', 'recording');
+    formData.append('description', 'Work Session Recording');
 
-    return {
-      success: true,
-      id: result.insertId,
-      message: `Recording saved to database with ID: ${result.insertId}`
-    };
+    const response = await axios.post(serverUrl, formData, {
+      headers: {
+        ...formData.getHeaders(),
+        // Add any authentication headers if needed
+        'Authorization': `Bearer ${process.env.UPLOAD_TOKEN || 'local-token'}`, // Example auth header
+      },
+      timeout: 120000 // Increased timeout to accommodate larger files
+    });
+
+    // Track download size after receiving response
+    const responseDataSize = JSON.stringify(response.data).length;
+    totalBytesDownloaded += responseDataSize; // Add to total downloaded bytes
+
+    console.log(`Recording uploaded successfully to server:`, response.data);
+
+    // If upload is successful, also log to the web_images table for reference
+    if (response.data && response.data.fileId) {
+      // Insert a record in web_images table with the server file ID
+      const query = `
+        INSERT INTO web_images
+        (br_id, imgID, imgName, itmName, type, user_id, date, time, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const currentTime = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
+      const imgID = response.data.fileId || Date.now(); // Use server's file ID if available
+
+      const [result] = await db.connection.execute(query, [
+        brId,           // br_id
+        imgID,          // imgID (server file ID)
+        filename,       // imgName (original filename)
+        'Work Session Recording', // itmName (description)
+        'recording',    // type
+        userId,         // user_id
+        currentDate,    // date
+        currentTime,    // time
+        'uploaded'      // status (changed to uploaded since it's on server)
+      ]);
+
+      console.log(`Recording record saved to database with ID: ${result.insertId}`);
+
+      return {
+        success: true,
+        id: result.insertId,
+        fileId: response.data.fileId,
+        message: `Recording uploaded to server and saved to database with ID: ${result.insertId}`
+      };
+    } else {
+      // If server didn't return a file ID, use timestamp
+      const query = `
+        INSERT INTO web_images
+        (br_id, imgID, imgName, itmName, type, user_id, date, time, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const currentTime = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
+      const imgID = Date.now(); // Fallback to timestamp
+
+      const [result] = await db.connection.execute(query, [
+        brId,           // br_id
+        imgID,          // imgID
+        filename,       // imgName (original filename)
+        'Work Session Recording', // itmName (description)
+        'recording',    // type
+        userId,         // user_id
+        currentDate,    // date
+        currentTime,    // time
+        'uploaded'      // status
+      ]);
+
+      console.log(`Recording record saved to database with ID: ${result.insertId}`);
+
+      return {
+        success: true,
+        id: result.insertId,
+        message: `Recording uploaded to server and saved to database with ID: ${result.insertId}`
+      };
+    }
   } catch (error) {
-    console.error('Error saving recording to database:', error);
-    return { success: false, error: error.message };
+    console.error('Error uploading recording to server:', error);
+
+    // If upload fails, save to local captures directory as fallback
+    try {
+      const fs = require('fs');
+      const path = require('path');
+
+      // Create a 'captures' directory in the project root
+      const recordingsDir = path.join(__dirname, 'captures');
+
+      // Create the directory if it doesn't exist
+      if (!fs.existsSync(recordingsDir)) {
+        fs.mkdirSync(recordingsDir, { recursive: true });
+      }
+
+      // Create the full file path
+      const filePath = path.join(recordingsDir, filename);
+
+      // Write the file
+      fs.writeFileSync(filePath, buffer);
+
+      // Also log to the database with 'local' status
+      const userId = loggedInUser ? loggedInUser.ID : 1;
+      const brId = loggedInUser ? loggedInUser.br_id : 1;
+      const currentDate = new Date().toISOString().split('T')[0];
+      const currentTime = new Date().toTimeString().split(' ')[0];
+
+      const query = `
+        INSERT INTO web_images
+        (br_id, imgID, imgName, itmName, type, user_id, date, time, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const imgID = Date.now();
+
+      const [result] = await db.connection.execute(query, [
+        brId,           // br_id
+        imgID,          // imgID
+        filename,       // imgName
+        'Work Session Recording', // itmName
+        'recording',    // type
+        userId,         // user_id
+        currentDate,    // date
+        currentTime,    // time
+        'local-fallback' // status indicating it was saved locally due to upload failure
+      ]);
+
+      return {
+        success: false,
+        id: result.insertId,
+        error: error.message,
+        message: `Upload failed, saved locally instead. Error: ${error.message}`
+      };
+    } catch (fallbackError) {
+      console.error('Fallback save also failed:', fallbackError);
+      return {
+        success: false,
+        error: error.message,
+        fallbackError: fallbackError.message,
+        message: `Upload failed and local fallback also failed. Upload error: ${error.message}, Fallback error: ${fallbackError.message}`
+      };
+    }
   }
 });
 
@@ -391,6 +544,104 @@ ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
     console.error('Error auto-saving recording:', error);
     return { success: false, error: error.message };
   }
+});
+
+// Function to get network usage statistics
+async function getNetworkUsage() {
+  try {
+    // Get actual network interface statistics using systeminformation
+    const networkStats = await si.networkStats();
+
+    // Calculate total bytes from all network interfaces
+    let currentTotalRxBytes = 0; // Received/downloaded bytes
+    let currentTotalTxBytes = 0; // Transmitted/uploaded bytes
+
+    networkStats.forEach(interfaceStat => {
+      if (interfaceStat.rx_bytes !== undefined && interfaceStat.tx_bytes !== undefined) {
+        currentTotalRxBytes += interfaceStat.rx_bytes;
+        currentTotalTxBytes += interfaceStat.tx_bytes;
+      }
+    });
+
+    // Calculate speeds based on the difference since last check
+    const now = Date.now();
+    const timeDiff = (now - (global.lastNetworkCheckTime || now - 1000)) / 1000; // in seconds
+    const timeDiffSafe = Math.max(timeDiff, 0.001); // Minimum to prevent division by zero
+
+    // Calculate speeds in KB/s
+    const downloadSpeed = Math.max(0, (currentTotalRxBytes - (global.previousRxBytes || 0)) / timeDiffSafe / 1024);
+    const uploadSpeed = Math.max(0, (currentTotalTxBytes - (global.previousTxBytes || 0)) / timeDiffSafe / 1024);
+
+    // Update global tracking variables
+    global.previousRxBytes = currentTotalRxBytes;
+    global.previousTxBytes = currentTotalTxBytes;
+    global.lastNetworkCheckTime = now;
+
+    // Update our app's tracked totals
+    totalBytesDownloaded = currentTotalRxBytes;
+    totalBytesUploaded = currentTotalTxBytes;
+
+    return {
+      totalDownloaded: totalBytesDownloaded,
+      totalUploaded: totalBytesUploaded,
+      downloadSpeed: Math.round(downloadSpeed),
+      uploadSpeed: Math.round(uploadSpeed)
+    };
+  } catch (error) {
+    console.error('Error getting network usage:', error);
+
+    // Fallback to previous method if system information fails
+    const now = Date.now();
+    const timeDiff = (now - (global.lastNetworkCheckTime || now - 1000)) / 1000; // in seconds
+    const timeDiffSafe = Math.max(timeDiff, 0.001); // Minimum to prevent division by zero
+
+    const downloadSpeed = Math.max(0, (totalBytesDownloaded - previousBytesDownloaded) / timeDiffSafe / 1024); // KB/s
+    const uploadSpeed = Math.max(0, (totalBytesUploaded - previousBytesUploaded) / timeDiffSafe / 1024); // KB/s
+
+    // Update tracking variables
+    previousBytesDownloaded = totalBytesDownloaded;
+    previousBytesUploaded = totalBytesUploaded;
+    global.lastNetworkCheckTime = now;
+
+    return {
+      totalDownloaded: totalBytesDownloaded,
+      totalUploaded: totalBytesUploaded,
+      downloadSpeed: Math.round(downloadSpeed),
+      uploadSpeed: Math.round(uploadSpeed)
+    };
+  }
+}
+
+// IPC handler to get current network usage
+ipcMain.handle('get-network-usage', async (event) => {
+  return getNetworkUsage();
+});
+
+// Function to start network usage monitoring
+function startNetworkMonitoring() {
+  if (networkUsageInterval) {
+    clearInterval(networkUsageInterval);
+  }
+
+  // Update network usage every second
+  networkUsageInterval = setInterval(async () => {
+    if (mainWindow) {
+      // Send network usage to renderer
+      const networkData = await getNetworkUsage();
+      mainWindow.webContents.send('network-usage-update', networkData);
+    }
+  }, 1000);
+}
+
+// Handle network usage request from renderer
+ipcMain.on('request-network-usage', (event) => {
+  event.reply('network-usage-response', getNetworkUsage());
+});
+
+// Handle database operation network usage updates
+ipcMain.on('database-operation', (event, data) => {
+  totalBytesUploaded += data.uploadSize || 0;
+  totalBytesDownloaded += data.downloadSize || 0;
 });
 
 app.on('window-all-closed', () => {

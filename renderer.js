@@ -14,6 +14,13 @@ let recordingInterval = null;
 // Store user information
 let currentUser = null;
 
+// Network usage tracking variables
+let previousBytesDownloaded = 0;
+let previousBytesUploaded = 0;
+let totalBytesDownloaded = 0;
+let totalBytesUploaded = 0;
+let networkUsageInterval = null;
+
 // Wait for DOM to be fully loaded before accessing elements
 document.addEventListener('DOMContentLoaded', function() {
   // DOM elements
@@ -38,6 +45,22 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Received user info:', user);
     // Optionally update UI to show logged in user
     statusText.textContent = `Logged in as: ${user.Name || user.RepID}. Ready to start recording...`;
+  });
+
+  // Listen for network usage updates from main process
+  ipcRenderer.on('network-usage-update', (event, networkData) => {
+    if (downloadSpeedElement) {
+      downloadSpeedElement.textContent = `${networkData.downloadSpeed} KB/s`;
+    }
+    if (uploadSpeedElement) {
+      uploadSpeedElement.textContent = `${networkData.uploadSpeed} KB/s`;
+    }
+    if (totalDownloadedElement) {
+      totalDownloadedElement.textContent = `${Math.round(networkData.totalDownloaded / (1024 * 1024))} MB`;
+    }
+    if (totalUploadedElement) {
+      totalUploadedElement.textContent = `${Math.round(networkData.totalUploaded / (1024 * 1024))} MB`;
+    }
   });
 
   // Check-in button functionality
@@ -285,17 +308,32 @@ async function startScreenRecording() {
     console.log('Track settings:', track.getSettings());
     console.log('Track constraints:', track.getConstraints());
 
-    // Create MediaRecorder with fallback MIME types
-    let options = { mimeType: 'video/webm;codecs=vp9' };
+    // Create MediaRecorder with optimized options for better compatibility
+    let options = {
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 5000000, // 5 Mbps for better quality/compression
+      audioBitsPerSecond: 128000   // 128 kbps for audio
+    };
     if (!MediaRecorder.isTypeSupported(options.mimeType)) {
       console.warn('VP9 codec not supported, trying VP8');
-      options = { mimeType: 'video/webm;codecs=vp8' };
+      options = {
+        mimeType: 'video/webm;codecs=vp8',
+        videoBitsPerSecond: 5000000,
+        audioBitsPerSecond: 128000
+      };
       if (!MediaRecorder.isTypeSupported(options.mimeType)) {
         console.warn('VP8 codec not supported, using default webm');
-        options = { mimeType: 'video/webm' };
+        options = {
+          mimeType: 'video/webm',
+          videoBitsPerSecond: 5000000,
+          audioBitsPerSecond: 128000
+        };
         if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-          console.warn('WebM not supported, using default');
-          options = {};
+          console.warn('WebM not supported, using default with bitrate settings');
+          options = {
+            videoBitsPerSecond: 5000000,
+            audioBitsPerSecond: 128000
+          };
         }
       }
     }
@@ -323,13 +361,16 @@ async function startScreenRecording() {
         return;
       }
 
-      // Create a blob from recorded chunks (using webm format but saving as mkv)
+      // Create a blob from recorded chunks (using webm format and saving as webm)
       const blob = new Blob(recordedChunks, { type: 'video/webm' });
       console.log(`Created blob with size: ${blob.size} bytes`);
 
+      // Wait a bit to ensure the blob is properly finalized
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `work-session-${timestamp}.mkv`;
+      const filename = `work-session-${timestamp}.webm`;
 
       try {
         // Convert blob to buffer
@@ -431,11 +472,67 @@ async function stopScreenRecording() {
   }
 }
 
+// Function to track network usage
+async function trackNetworkUsage() {
+  try {
+    // Calculate speeds based on the tracked bytes
+    const now = Date.now();
+    const timeDiff = (now - (window.networkUsageLastCheck || now - 1000)) / 1000; // in seconds
+
+    // Prevent division by zero
+    const timeDiffSafe = Math.max(timeDiff, 0.001); // Minimum 0.001 to prevent division by zero
+
+    const downloadSpeed = Math.max(0, (totalBytesDownloaded - previousBytesDownloaded) / timeDiffSafe);
+    const uploadSpeed = Math.max(0, (totalBytesUploaded - previousBytesUploaded) / timeDiffSafe);
+
+    // Update global tracking variables
+    previousBytesDownloaded = totalBytesDownloaded;
+    previousBytesUploaded = totalBytesUploaded;
+    window.networkUsageLastCheck = now;
+
+    // Debug logging to see if values are being updated
+    console.log('Network Usage - Downloaded:', totalBytesDownloaded, 'Uploaded:', totalBytesUploaded);
+    console.log('Network Speeds - Download:', Math.round(downloadSpeed / 1024), 'KB/s Upload:', Math.round(uploadSpeed / 1024), 'KB/s');
+
+    // Update UI elements
+    if (downloadSpeedElement) {
+      downloadSpeedElement.textContent = `${Math.round(downloadSpeed / 1024)} KB/s`;
+    }
+    if (uploadSpeedElement) {
+      uploadSpeedElement.textContent = `${Math.round(uploadSpeed / 1024)} KB/s`;
+    }
+    if (totalDownloadedElement) {
+      totalDownloadedElement.textContent = `${Math.round(totalBytesDownloaded / (1024 * 1024))} MB`;
+    }
+    if (totalUploadedElement) {
+      totalUploadedElement.textContent = `${Math.round(totalBytesUploaded / (1024 * 1024))} MB`;
+    }
+  } catch (error) {
+    console.warn('Error tracking network usage:', error);
+  }
+}
+
+// Start network usage tracking when DOM is loaded
+function startNetworkUsageTracking() {
+  // Clear any existing interval
+  if (networkUsageInterval) {
+    clearInterval(networkUsageInterval);
+  }
+
+  // Update network usage immediately
+  trackNetworkUsage();
+
+  // Then update every second
+  networkUsageInterval = setInterval(trackNetworkUsage, 1000);
+}
+
 // Listen for window visibility changes from main process
 if (window.electronAPI) {
   window.electronAPI.onWindowShown(() => {
     isWindowVisible = true;
     console.log('Window shown - continuing background operations');
+    // Resume network tracking when window is shown
+    startNetworkUsageTracking();
   });
 
   window.electronAPI.onWindowHidden(() => {
@@ -450,5 +547,12 @@ if (window.electronAPI) {
     }
   });
 }
+
+// Initialize network usage tracking when the page loads
+// Wait a moment to ensure all DOM elements are ready
+setTimeout(startNetworkUsageTracking, 500);
+
+// Also restart tracking when the window becomes visible again
+window.addEventListener('focus', startNetworkUsageTracking);
 
 }); // Close the DOMContentLoaded event listener
