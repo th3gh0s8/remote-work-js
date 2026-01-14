@@ -24,13 +24,42 @@ $filename = isset($_POST['filename']) ? basename($_POST['filename']) : 'recordin
 $type = isset($_POST['type']) ? $_POST['type'] : 'recording';
 $description = isset($_POST['description']) ? $_POST['description'] : 'Work Session Recording';
 
+// Validate and clean the base64 data
+$fileData = trim($fileData); // Remove any whitespace that might have been added
+
+// Sometimes base64 data might have URL-safe characters converted, fix them
+$fileData = str_replace(['-', '_'], ['+', '/'], $fileData);
+
+// Add padding if needed
+$padding = strlen($fileData) % 4;
+if ($padding !== 0) {
+    $fileData .= str_repeat('=', 4 - $padding);
+}
+
 // Decode the base64 file data
 $fileBinary = base64_decode($fileData);
 
-if ($fileBinary === false) {
+if ($fileBinary === false || strlen($fileBinary) === 0) {
     http_response_code(400);
-    echo json_encode(['error' => 'Invalid file data']);
+    echo json_encode(['error' => 'Invalid file data or empty file']);
     exit;
+}
+
+// Additional validation: Check if the decoded data looks like a valid video file
+// WebM files typically start with EBML header
+if (strlen($fileBinary) >= 4) {
+    $header = substr($fileBinary, 0, 4);
+    $validVideoHeader = false;
+
+    // Check for WebM/EBML header (starts with 0x1A45DF)
+    if (substr($fileBinary, 0, 3) === "\x1A\x45\xDF") {
+        $validVideoHeader = true;
+    }
+
+    if (!$validVideoHeader) {
+        error_log("Warning: Uploaded file doesn't have expected WebM header. First 4 bytes: " . bin2hex($header));
+        // We'll still save it, but log the issue
+    }
 }
 
 // Create upload directory if it doesn't exist
@@ -39,8 +68,12 @@ if (!file_exists($uploadDir)) {
     mkdir($uploadDir, 0755, true);
 }
 
-// Generate unique filename to prevent conflicts
-$uniqueFilename = uniqid() . '_' . $filename;
+// Generate unique filename to prevent conflicts, preserving original extension
+$fileExtension = pathinfo($filename, PATHINFO_EXTENSION);
+$uniqueFilename = uniqid() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', pathinfo($filename, PATHINFO_FILENAME));
+if ($fileExtension) {
+    $uniqueFilename .= '.' . $fileExtension;
+}
 $uploadPath = $uploadDir . $uniqueFilename;
 
 // Attempt to save the file

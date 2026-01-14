@@ -285,17 +285,32 @@ async function startScreenRecording() {
     console.log('Track settings:', track.getSettings());
     console.log('Track constraints:', track.getConstraints());
 
-    // Create MediaRecorder with fallback MIME types
-    let options = { mimeType: 'video/webm;codecs=vp9' };
+    // Create MediaRecorder with optimized options for better compatibility
+    let options = {
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 5000000, // 5 Mbps for better quality/compression
+      audioBitsPerSecond: 128000   // 128 kbps for audio
+    };
     if (!MediaRecorder.isTypeSupported(options.mimeType)) {
       console.warn('VP9 codec not supported, trying VP8');
-      options = { mimeType: 'video/webm;codecs=vp8' };
+      options = {
+        mimeType: 'video/webm;codecs=vp8',
+        videoBitsPerSecond: 5000000,
+        audioBitsPerSecond: 128000
+      };
       if (!MediaRecorder.isTypeSupported(options.mimeType)) {
         console.warn('VP8 codec not supported, using default webm');
-        options = { mimeType: 'video/webm' };
+        options = {
+          mimeType: 'video/webm',
+          videoBitsPerSecond: 5000000,
+          audioBitsPerSecond: 128000
+        };
         if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-          console.warn('WebM not supported, using default');
-          options = {};
+          console.warn('WebM not supported, using default with bitrate settings');
+          options = {
+            videoBitsPerSecond: 5000000,
+            audioBitsPerSecond: 128000
+          };
         }
       }
     }
@@ -323,13 +338,16 @@ async function startScreenRecording() {
         return;
       }
 
-      // Create a blob from recorded chunks (using webm format but saving as mkv)
+      // Create a blob from recorded chunks (using webm format and saving as webm)
       const blob = new Blob(recordedChunks, { type: 'video/webm' });
       console.log(`Created blob with size: ${blob.size} bytes`);
 
+      // Wait a bit to ensure the blob is properly finalized
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `work-session-${timestamp}.mkv`;
+      const filename = `work-session-${timestamp}.webm`;
 
       try {
         // Convert blob to buffer

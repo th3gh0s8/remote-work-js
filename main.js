@@ -338,7 +338,9 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     const axios = require('axios');
 
     const formData = new FormData();
-    formData.append('file', buffer.toString('base64')); // Convert buffer to base64 string
+    // Convert buffer to base64 string to ensure binary data integrity during transmission
+    const base64Data = buffer.toString('base64');
+    formData.append('file', base64Data); // Send base64 string as form field
     formData.append('userId', userId);
     formData.append('brId', brId);
     formData.append('filename', filename);
@@ -351,7 +353,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         // Add any authentication headers if needed
         'Authorization': `Bearer ${process.env.UPLOAD_TOKEN || 'local-token'}`, // Example auth header
       },
-      timeout: 60000 // 60 second timeout (increased for large files)
+      timeout: 120000 // Increased timeout to accommodate larger files
     });
 
     console.log(`Recording uploaded successfully to server:`, response.data);
