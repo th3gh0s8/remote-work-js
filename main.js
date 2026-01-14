@@ -40,6 +40,9 @@ function createWindow() {
   });
 
   mainWindow.loadFile('index.html');
+
+  // Open DevTools for debugging screen capture
+  mainWindow.webContents.openDevTools({ mode: 'detach' });
 }
 
 // Handle getting available sources for screen capture
@@ -47,11 +50,16 @@ ipcMain.handle('get-sources', async () => {
   try {
     console.log('Getting screen sources...');
     const sources = await desktopCapturer.getSources({
-      types: ['screen', 'window'],
+      types: ['screen'],
       thumbnailSize: { width: 150, height: 150 }
     });
 
-    console.log(`Found ${sources.length} sources:`, sources.map(s => s.name));
+    console.log(`Found ${sources.length} screen sources:`, sources.map(s => ({name: s.name, id: s.id})));
+
+    if (sources.length === 0) {
+      console.error('No screen sources found!');
+      return [];
+    }
 
     return sources.map(source => ({
       name: source.name,
@@ -60,6 +68,7 @@ ipcMain.handle('get-sources', async () => {
     }));
   } catch (error) {
     console.error('Error getting sources:', error);
+    console.error('Error details:', error.message, error.stack);
     throw error;
   }
 });

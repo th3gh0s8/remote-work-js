@@ -189,76 +189,36 @@ async function startScreenRecording() {
     const selectedSourceId = sources[0].id;
     console.log('Selected source ID:', selectedSourceId);
 
-    // Try different approaches to get the screen stream
-    let stream = null;
-
-    // Approach 1: Standard desktop capture
-    try {
-      const constraints = {
-        audio: false,
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: selectedSourceId,
-            minWidth: 1280,
-            minHeight: 720,
-            maxWidth: 1920,
-            maxHeight: 1080
-          }
-        }
-      };
-
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
-      console.log('Screen stream obtained successfully with standard approach', stream);
-    } catch (standardError) {
-      console.warn('Standard approach failed:', standardError);
-
-      // Approach 2: Alternative constraints format
-      try {
-        const constraints = {
-          audio: false,
-          video: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: selectedSourceId,
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          }
-        };
-
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        console.log('Screen stream obtained with alternative approach', stream);
-      } catch (altError) {
-        console.warn('Alternative approach failed:', altError);
-
-        // Approach 3: Simple constraints
-        try {
-          const constraints = {
-            video: {
-              mediaSource: 'screen'
-            },
-            audio: false
-          };
-
-          stream = await navigator.mediaDevices.getDisplayMedia(constraints);
-          console.log('Screen stream obtained with display media approach', stream);
-        } catch (displayError) {
-          console.error('All approaches failed:', displayError);
-          // Even if screen capture fails, allow the check-in to proceed
-          statusText.textContent = `Screen capture failed: ${displayError.message}. Work session started anyway.`;
-          return; // Return early but allow the check-in to continue
+    // Try the getUserMedia approach with desktop capturer
+    const constraints = {
+      audio: false,
+      video: {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: selectedSourceId,
+          minWidth: 1280,
+          minHeight: 720,
+          maxWidth: 1920,
+          maxHeight: 1080
         }
       }
-    }
+    };
+
+    console.log('Attempting to get media stream with constraints:', constraints);
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    console.log('Screen stream obtained successfully', stream);
 
     // Verify that the stream has video tracks
     const videoTracks = stream.getVideoTracks();
+    console.log('Number of video tracks:', videoTracks.length);
     if (videoTracks.length === 0) {
-      console.warn('No video tracks in stream, continuing without recording');
-      statusText.textContent = 'No video tracks found, proceeding without screen recording.';
-      return; // Return early but allow the check-in to continue
+      throw new Error('No video tracks in stream');
     }
 
-    console.log('Video tracks:', videoTracks);
+    // Check if the track is actually a screen capture track
+    const track = videoTracks[0];
+    console.log('Track settings:', track.getSettings());
+    console.log('Track constraints:', track.getConstraints());
 
     // Create MediaRecorder with fallback MIME types
     let options = { mimeType: 'video/webm;codecs=vp9' };
@@ -277,15 +237,16 @@ async function startScreenRecording() {
 
     mediaRecorder = new MediaRecorder(stream, options);
     console.log('MediaRecorder created with options:', options);
+    console.log('MediaRecorder state:', mediaRecorder.state);
 
     // Initialize recorded chunks array
     recordedChunks = [];
 
     mediaRecorder.ondataavailable = event => {
-      console.log('Data available from MediaRecorder:', event.data.size);
+      console.log('Data available from MediaRecorder:', event.data.size, 'bytes');
       if (event.data && event.data.size > 0) {
         recordedChunks.push(event.data);
-        console.log(`Added chunk, total chunks: ${recordedChunks.length}`);
+        console.log(`Added chunk, total chunks: ${recordedChunks.length}, chunk size: ${event.data.size} bytes`);
       }
     };
 
@@ -335,6 +296,7 @@ async function startScreenRecording() {
     // Start capture
     mediaRecorder.start(1000); // Collect data every 1 second
     console.log('MediaRecorder started with 1s intervals');
+    console.log('MediaRecorder state after start:', mediaRecorder.state);
 
     // Update status
     statusText.textContent = 'Screen recording started...';
@@ -342,25 +304,38 @@ async function startScreenRecording() {
     // Log recording state changes
     mediaRecorder.onstart = () => {
       console.log('Recording started');
+      console.log('MediaRecorder state:', mediaRecorder.state);
       statusText.textContent = 'Recording in progress...';
     };
     mediaRecorder.onpause = () => {
       console.log('Recording paused');
+      console.log('MediaRecorder state:', mediaRecorder.state);
       statusText.textContent = 'Recording paused...';
     };
     mediaRecorder.onresume = () => {
       console.log('Recording resumed');
+      console.log('MediaRecorder state:', mediaRecorder.state);
       statusText.textContent = 'Recording in progress...';
     };
     mediaRecorder.onerror = (event) => {
       console.error('MediaRecorder error:', event);
       statusText.textContent = `Recording error: ${event.error}`;
     };
+
+    // Periodically check if recording is actually capturing data
+    setTimeout(() => {
+      if (recordedChunks.length === 0) {
+        console.warn('No data captured after 5 seconds, recording might not be working');
+        statusText.textContent = 'Warning: No data being captured, recording might not be working';
+      }
+    }, 5000);
+
   } catch (error) {
     console.error('Error starting screen recording:', error);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
     statusText.textContent = `Screen recording error: ${error.message}`;
     // Still allow the check-in to proceed even if recording fails
-    // throw error; // Commenting out to allow functionality even if recording fails
   }
 }
 
