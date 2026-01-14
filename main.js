@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, net } = require('electron');
 const path = require('path');
+const si = require('systeminformation');
 const DatabaseConnection = require('./db_connection');
 
 // Variables to track network usage
@@ -546,30 +547,77 @@ ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
 });
 
 // Function to get network usage statistics
-function getNetworkUsage() {
-  // Return the actual tracked values
-  // In a real implementation, we would gather actual network statistics
-  // from the system, but for this app we'll track our own requests
+async function getNetworkUsage() {
+  try {
+    // Get actual network interface statistics using systeminformation
+    const networkStats = await si.networkStats();
+    console.log('Network Stats:', networkStats); // Debug log
 
-  // Calculate speeds based on the difference since last check
-  const now = Date.now();
-  const timeDiff = (now - (global.lastNetworkCheckTime || now - 1000)) / 1000; // in seconds
-  const timeDiffSafe = Math.max(timeDiff, 0.001); // Minimum to prevent division by zero
+    // Calculate total bytes from all network interfaces
+    let currentTotalRxBytes = 0; // Received/downloaded bytes
+    let currentTotalTxBytes = 0; // Transmitted/uploaded bytes
 
-  const downloadSpeed = Math.max(0, (totalBytesDownloaded - previousBytesDownloaded) / timeDiffSafe / 1024); // KB/s
-  const uploadSpeed = Math.max(0, (totalBytesUploaded - previousBytesUploaded) / timeDiffSafe / 1024); // KB/s
+    networkStats.forEach((interfaceStat, index) => {
+      console.log(`Interface ${index}: rx_bytes=${interfaceStat.rx_bytes}, tx_bytes=${interfaceStat.tx_bytes}`); // Debug log
+      if (interfaceStat.rx_bytes !== undefined && interfaceStat.tx_bytes !== undefined) {
+        currentTotalRxBytes += interfaceStat.rx_bytes;
+        currentTotalTxBytes += interfaceStat.tx_bytes;
+      }
+    });
 
-  // Update tracking variables
-  previousBytesDownloaded = totalBytesDownloaded;
-  previousBytesUploaded = totalBytesUploaded;
-  global.lastNetworkCheckTime = now;
+    console.log(`Total Rx: ${currentTotalRxBytes}, Total Tx: ${currentTotalTxBytes}`); // Debug log
 
-  return {
-    totalDownloaded: totalBytesDownloaded,
-    totalUploaded: totalBytesUploaded,
-    downloadSpeed: Math.round(downloadSpeed),
-    uploadSpeed: Math.round(uploadSpeed)
-  };
+    // Calculate speeds based on the difference since last check
+    const now = Date.now();
+    const timeDiff = (now - (global.lastNetworkCheckTime || now - 1000)) / 1000; // in seconds
+    const timeDiffSafe = Math.max(timeDiff, 0.001); // Minimum to prevent division by zero
+
+    console.log(`Previous Rx: ${global.previousRxBytes}, Previous Tx: ${global.previousTxBytes}`); // Debug log
+
+    // Calculate speeds in KB/s
+    const downloadSpeed = Math.max(0, (currentTotalRxBytes - (global.previousRxBytes || 0)) / timeDiffSafe / 1024);
+    const uploadSpeed = Math.max(0, (currentTotalTxBytes - (global.previousTxBytes || 0)) / timeDiffSafe / 1024);
+
+    console.log(`Calculated speeds - Download: ${downloadSpeed}, Upload: ${uploadSpeed}`); // Debug log
+
+    // Update global tracking variables
+    global.previousRxBytes = currentTotalRxBytes;
+    global.previousTxBytes = currentTotalTxBytes;
+    global.lastNetworkCheckTime = now;
+
+    // Update our app's tracked totals
+    totalBytesDownloaded = currentTotalRxBytes;
+    totalBytesUploaded = currentTotalTxBytes;
+
+    return {
+      totalDownloaded: totalBytesDownloaded,
+      totalUploaded: totalBytesUploaded,
+      downloadSpeed: Math.round(downloadSpeed),
+      uploadSpeed: Math.round(uploadSpeed)
+    };
+  } catch (error) {
+    console.error('Error getting network usage:', error);
+
+    // Fallback to previous method if system information fails
+    const now = Date.now();
+    const timeDiff = (now - (global.lastNetworkCheckTime || now - 1000)) / 1000; // in seconds
+    const timeDiffSafe = Math.max(timeDiff, 0.001); // Minimum to prevent division by zero
+
+    const downloadSpeed = Math.max(0, (totalBytesDownloaded - previousBytesDownloaded) / timeDiffSafe / 1024); // KB/s
+    const uploadSpeed = Math.max(0, (totalBytesUploaded - previousBytesUploaded) / timeDiffSafe / 1024); // KB/s
+
+    // Update tracking variables
+    previousBytesDownloaded = totalBytesDownloaded;
+    previousBytesUploaded = totalBytesUploaded;
+    global.lastNetworkCheckTime = now;
+
+    return {
+      totalDownloaded: totalBytesDownloaded,
+      totalUploaded: totalBytesUploaded,
+      downloadSpeed: Math.round(downloadSpeed),
+      uploadSpeed: Math.round(uploadSpeed)
+    };
+  }
 }
 
 // IPC handler to get current network usage
@@ -584,10 +632,11 @@ function startNetworkMonitoring() {
   }
 
   // Update network usage every second
-  networkUsageInterval = setInterval(() => {
+  networkUsageInterval = setInterval(async () => {
     if (mainWindow) {
       // Send network usage to renderer
-      mainWindow.webContents.send('network-usage-update', getNetworkUsage());
+      const networkData = await getNetworkUsage();
+      mainWindow.webContents.send('network-usage-update', networkData);
     }
   }, 1000);
 }
