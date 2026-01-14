@@ -551,34 +551,26 @@ async function getNetworkUsage() {
   try {
     // Get actual network interface statistics using systeminformation
     const networkStats = await si.networkStats();
-    console.log('Network Stats:', networkStats); // Debug log
 
     // Calculate total bytes from all network interfaces
     let currentTotalRxBytes = 0; // Received/downloaded bytes
     let currentTotalTxBytes = 0; // Transmitted/uploaded bytes
 
-    networkStats.forEach((interfaceStat, index) => {
-      console.log(`Interface ${index}: rx_bytes=${interfaceStat.rx_bytes}, tx_bytes=${interfaceStat.tx_bytes}`); // Debug log
+    networkStats.forEach(interfaceStat => {
       if (interfaceStat.rx_bytes !== undefined && interfaceStat.tx_bytes !== undefined) {
         currentTotalRxBytes += interfaceStat.rx_bytes;
         currentTotalTxBytes += interfaceStat.tx_bytes;
       }
     });
 
-    console.log(`Total Rx: ${currentTotalRxBytes}, Total Tx: ${currentTotalTxBytes}`); // Debug log
-
     // Calculate speeds based on the difference since last check
     const now = Date.now();
     const timeDiff = (now - (global.lastNetworkCheckTime || now - 1000)) / 1000; // in seconds
     const timeDiffSafe = Math.max(timeDiff, 0.001); // Minimum to prevent division by zero
 
-    console.log(`Previous Rx: ${global.previousRxBytes}, Previous Tx: ${global.previousTxBytes}`); // Debug log
-
     // Calculate speeds in KB/s
     const downloadSpeed = Math.max(0, (currentTotalRxBytes - (global.previousRxBytes || 0)) / timeDiffSafe / 1024);
     const uploadSpeed = Math.max(0, (currentTotalTxBytes - (global.previousTxBytes || 0)) / timeDiffSafe / 1024);
-
-    console.log(`Calculated speeds - Download: ${downloadSpeed}, Upload: ${uploadSpeed}`); // Debug log
 
     // Update global tracking variables
     global.previousRxBytes = currentTotalRxBytes;
