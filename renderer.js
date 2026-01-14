@@ -178,7 +178,14 @@ function formatSeconds(seconds) {
   return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-// Screen recording functions
+/**
+ * Request screen capture permission and start recording the primary display.
+ *
+ * Begins a MediaRecorder capture of the primary screen, accumulates recorded chunks,
+ * and, when the recorder stops, converts and sends the recording to the main process
+ * to be saved. Updates the on-page status text and logs warnings or errors if
+ * recording or saving fails.
+ */
 async function startScreenRecording() {
   try {
     statusText.textContent = 'Requesting screen access...';
@@ -373,4 +380,3 @@ async function stopScreenRecording() {
 }
 
 }); // Close the DOMContentLoaded event listener
-
