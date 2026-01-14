@@ -73,9 +73,11 @@ app.whenReady().then(() => {
         }
       }
     },
+    { type: 'separator' },
     {
       label: 'Quit',
       click: () => {
+        // Force quit the application
         app.quit();
       }
     }
@@ -95,6 +97,32 @@ app.whenReady().then(() => {
         mainWindow.focus();
       }
     }
+  });
+
+  // Flag to determine if we're quitting the app or just closing the window
+  let isQuitting = false;
+
+  app.on('before-quit', () => {
+    isQuitting = true; // Set flag to allow actual quitting
+  });
+
+  // Also handle the case when user tries to close the window
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      // Prevent the window from closing, just hide it
+      event.preventDefault();
+      mainWindow.hide();
+    }
+    // If isQuitting is true, the window will close normally
+  });
+
+  // Handle window visibility changes to notify renderer
+  mainWindow.on('show', () => {
+    mainWindow.webContents.send('window-shown');
+  });
+
+  mainWindow.on('hide', () => {
+    mainWindow.webContents.send('window-hidden');
   });
 });
 
@@ -193,11 +221,12 @@ ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
 });
 
 app.on('window-all-closed', () => {
-  // Keep the app running on macOS (do not quit) and quit on Windows/Linux
+  // Keep the app running in background on all platforms, not just macOS
+  // This allows the app to stay active in the system tray
   if (process.platform === 'darwin') {
     return;
   }
-  app.quit();
+  // Don't quit the app when window is closed - keep it running in background
 });
 
 app.on('activate', () => {
