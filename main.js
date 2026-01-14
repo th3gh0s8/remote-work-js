@@ -44,7 +44,7 @@ function createWindow() {
   // Open DevTools for debugging screen capture
   mainWindow.webContents.openDevTools({ mode: 'detach' });
 
-  // Prevent the window from being garbage collected
+  // Release reference so the window can be garbage collected
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -193,11 +193,8 @@ ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
 });
 
 app.on('window-all-closed', () => {
-  // Don't quit the app when window is closed, just hide it
-  // The app will continue running in the system tray
-  // Only quit on macOS when user explicitly quits
-  if (process.platform !== 'darwin') {
-    // On Windows/Linux, just hide the window, don't quit
+  // Keep the app running on macOS (do not quit) and quit on Windows/Linux
+  if (process.platform === 'darwin') {
     return;
   }
   app.quit();
