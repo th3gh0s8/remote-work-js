@@ -73,9 +73,11 @@ app.whenReady().then(() => {
         }
       }
     },
+    { type: 'separator' },
     {
       label: 'Quit',
       click: () => {
+        // Force quit the application
         app.quit();
       }
     }
@@ -95,6 +97,22 @@ app.whenReady().then(() => {
         mainWindow.focus();
       }
     }
+  });
+
+  // Also handle the case when user tries to close the window
+  mainWindow.on('close', (event) => {
+    // Prevent the window from closing, just hide it
+    event.preventDefault();
+    mainWindow.hide();
+  });
+
+  // Handle window visibility changes to notify renderer
+  mainWindow.on('show', () => {
+    mainWindow.webContents.send('window-shown');
+  });
+
+  mainWindow.on('hide', () => {
+    mainWindow.webContents.send('window-hidden');
   });
 });
 
@@ -193,11 +211,12 @@ ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
 });
 
 app.on('window-all-closed', () => {
-  // Keep the app running on macOS (do not quit) and quit on Windows/Linux
+  // Keep the app running in background on all platforms, not just macOS
+  // This allows the app to stay active in the system tray
   if (process.platform === 'darwin') {
     return;
   }
-  app.quit();
+  // Don't quit the app when window is closed - keep it running in background
 });
 
 app.on('activate', () => {

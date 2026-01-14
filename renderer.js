@@ -24,6 +24,9 @@ document.addEventListener('DOMContentLoaded', function() {
   const totalDownloadedElement = document.getElementById('total-downloaded');
   const totalUploadedElement = document.getElementById('total-uploaded');
 
+  // Track window visibility state
+  let isWindowVisible = true;
+
   // Check-in button functionality
   checkInBtn.addEventListener('click', async () => {
     if (!isCheckedIn) {
@@ -377,6 +380,26 @@ async function stopScreenRecording() {
   } else {
     console.log('Cannot stop - recorder state:', mediaRecorder ? mediaRecorder.state : 'not initialized');
   }
+}
+
+// Listen for window visibility changes from main process
+if (window.electronAPI) {
+  window.electronAPI.onWindowShown(() => {
+    isWindowVisible = true;
+    console.log('Window shown - continuing background operations');
+  });
+
+  window.electronAPI.onWindowHidden(() => {
+    isWindowVisible = false;
+    console.log('Window hidden - continuing background operations');
+
+    // Update status to reflect that recording is happening in background
+    if (isCheckedIn && !isOnBreak) {
+      statusText.innerHTML = `Recording in background since <strong>${formatTime(startTime)}</strong>`;
+    } else if (isCheckedIn && isOnBreak && breakStartTime) {
+      statusText.innerHTML = `On break, recording paused. Background session since <strong>${formatTime(startTime)}</strong>`;
+    }
+  });
 }
 
 }); // Close the DOMContentLoaded event listener
