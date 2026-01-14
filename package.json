@@ -2,7 +2,7 @@
   "name": "remote-work",
   "version": "1.0.0",
   "description": "remote work screen recorder",
-  "main": "main_simplified.js",
+  "main": "main.js",
   "scripts": {
     "start": "electron .",
     "test": "echo \\\"Error: no test specified\\\" && exit 1"

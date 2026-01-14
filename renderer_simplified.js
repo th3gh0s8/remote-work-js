@@ -1,4 +1,5 @@
-const { ipcRenderer } = require('electron');
+// Use the secure API exposed via contextBridge
+const { electronAPI } = window;
 
 console.log('Renderer script loaded');
 
@@ -163,144 +164,145 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
-// Timer display function
-function updateTimerDisplay() {
-  if (!startTime || !isCheckedIn) return;
+  // Timer display function
+  function updateTimerDisplay() {
+    if (!startTime || !isCheckedIn) return;
 
-  let currentTime = new Date();
-  let elapsed;
+    let currentTime = new Date();
+    let elapsed;
 
-  if (isOnBreak && breakStartTime) {
-    // Calculate time worked before break
-    elapsed = (breakStartTime - startTime) / 1000;
-  } else {
-    // Calculate total time since check-in (excluding break time)
-    const totalSessionTime = (currentTime - startTime) / 1000;
-    elapsed = totalSessionTime - totalBreakTime;
-  }
-
-  const formattedTime = formatSeconds(elapsed);
-
-  if (isOnBreak) {
-    statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong><br>
-                            Time worked: <strong>${formattedTime}</strong>`;
-  } else {
-    statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong><br>
-                            Time worked: <strong>${formattedTime}</strong>`;
-  }
-}
-
-// Helper function to format time
-function formatTime(date) {
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-// Helper function to format seconds to HH:MM:SS
-function formatSeconds(seconds) {
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  
-  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
-
-// Screen recording functions
-async function startScreenRecording() {
-  try {
-    console.log('Starting screen recording...');
-    
-    // Get screen sources
-    const sources = await ipcRenderer.invoke('get-sources');
-    if (sources.length === 0) {
-      console.error('No screen sources available');
-      statusText.textContent = 'Error: No screen sources available for recording';
-      return;
+    if (isOnBreak && breakStartTime) {
+      // Calculate time worked before break
+      elapsed = (breakStartTime - startTime) / 1000;
+    } else {
+      // Calculate total time since check-in (excluding break time)
+      const totalSessionTime = (currentTime - startTime) / 1000;
+      elapsed = totalSessionTime - totalBreakTime;
     }
 
-    const selectedSourceId = sources[0].id;
-    console.log('Selected source ID:', selectedSourceId);
+    const formattedTime = formatSeconds(elapsed);
 
-    // Get screen stream
-    const constraints = {
-      video: {
-        mandatory: {
-          chromeMediaSource: 'desktop',
-          chromeMediaSourceId: selectedSourceId,
-          minWidth: 1280,
-          minHeight: 720
-        }
-      },
-      audio: false
-    };
+    if (isOnBreak) {
+      statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong><br>
+                              Time worked: <strong>${formattedTime}</strong>`;
+    } else {
+      statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong><br>
+                              Time worked: <strong>${formattedTime}</strong>`;
+    }
+  }
 
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    console.log('Screen stream obtained successfully');
+  // Helper function to format time
+  function formatTime(date) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
 
-    // Create MediaRecorder
-    const options = { mimeType: 'video/webm' }; // Using basic format
-    mediaRecorder = new MediaRecorder(stream, options);
-    console.log('MediaRecorder created');
+  // Helper function to format seconds to HH:MM:SS
+  function formatSeconds(seconds) {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
 
-    // Initialize recorded chunks array
-    recordedChunks = [];
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
 
-    mediaRecorder.ondataavailable = event => {
-      if (event.data.size > 0) {
-        recordedChunks.push(event.data);
-        console.log('Chunk added, total:', recordedChunks.length);
+  // Screen recording functions
+  async function startScreenRecording() {
+    try {
+      console.log('Starting screen recording...');
+
+      // Get screen sources
+      const sources = await electronAPI.getSources();
+      if (sources.length === 0) {
+        console.error('No screen sources available');
+        statusText.textContent = 'Error: No screen sources available for recording';
+        return;
       }
-    };
 
-    mediaRecorder.onstop = async () => {
-      console.log('MediaRecorder stopped, processing', recordedChunks.length, 'chunks');
-      
-      if (recordedChunks.length > 0) {
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `work-session-${timestamp}.webm`;
-        const buffer = Buffer.from(await blob.arrayBuffer());
+      const selectedSourceId = sources[0].id;
+      console.log('Selected source ID:', selectedSourceId);
 
-        const result = await ipcRenderer.invoke('save-recording', buffer, filename);
+      // Get screen stream
+      const constraints = {
+        video: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: selectedSourceId,
+            minWidth: 1280,
+            minHeight: 720
+          }
+        },
+        audio: false
+      };
 
-        if (result.success) {
-          console.log(`Recording saved to: ${result.filePath}`);
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('Screen stream obtained successfully');
+
+      // Create MediaRecorder
+      const options = { mimeType: 'video/webm' }; // Using basic format
+      mediaRecorder = new MediaRecorder(stream, options);
+      console.log('MediaRecorder created');
+
+      // Initialize recorded chunks array
+      recordedChunks = [];
+
+      mediaRecorder.ondataavailable = event => {
+        if (event.data.size > 0) {
+          recordedChunks.push(event.data);
+          console.log('Chunk added, total:', recordedChunks.length);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        console.log('MediaRecorder stopped, processing', recordedChunks.length, 'chunks');
+
+        if (recordedChunks.length > 0) {
+          const blob = new Blob(recordedChunks, { type: 'video/webm' });
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const filename = `work-session-${timestamp}.webm`;
+          const buffer = Buffer.from(await blob.arrayBuffer());
+
+          const result = await electronAPI.saveRecording(buffer, filename);
+
+          if (result.success) {
+            console.log(`Recording saved to: ${result.filePath}`);
+          } else {
+            console.error(`Error saving recording: ${result.error}`);
+          }
         } else {
-          console.error(`Error saving recording: ${result.error}`);
+          console.log('No chunks to save');
         }
-      } else {
-        console.log('No chunks to save');
-      }
 
-      // Clean up the stream
-      stream.getTracks().forEach(track => track.stop());
-    };
+        // Clean up the stream
+        stream.getTracks().forEach(track => track.stop());
+      };
 
-    // Start recording
-    mediaRecorder.start(1000); // Collect data every 1 second
-    console.log('Recording started');
-  } catch (error) {
-    console.error('Error starting screen recording:', error);
-    statusText.textContent = `Screen recording error: ${error.message}`;
+      // Start recording
+      mediaRecorder.start(1000); // Collect data every 1 second
+      console.log('Recording started');
+    } catch (error) {
+      console.error('Error starting screen recording:', error);
+      statusText.textContent = `Screen recording error: ${error.message}`;
+    }
   }
-}
 
-function pauseScreenRecording() {
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    mediaRecorder.pause();
-    console.log('Recording paused');
+  function pauseScreenRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.pause();
+      console.log('Recording paused');
+    }
   }
-}
 
-function resumeScreenRecording() {
-  if (mediaRecorder && mediaRecorder.state === 'paused') {
-    mediaRecorder.resume();
-    console.log('Recording resumed');
+  function resumeScreenRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'paused') {
+      mediaRecorder.resume();
+      console.log('Recording resumed');
+    }
   }
-}
 
-function stopScreenRecording() {
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop();
-    console.log('Recording stopped');
+  function stopScreenRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+      console.log('Recording stopped');
+    }
   }
-}
+});

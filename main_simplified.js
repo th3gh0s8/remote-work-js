@@ -8,12 +8,13 @@ function createWindow() {
     width: 800,
     height: 600,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      enableRemoteModule: true
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      webSecurity: true,
+      preload: path.join(__dirname, 'preload.js')
     },
-    icon: path.join(__dirname, 'assets/icon.png'),
-    webSecurity: false
+    icon: path.join(__dirname, 'assets/icon.png')
   });
 
   // Enable screen capture permissions
@@ -56,15 +57,24 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
   try {
     const fs = require('fs');
     const recordingsDir = path.join(__dirname, 'captures');
-    
+
     if (!fs.existsSync(recordingsDir)) {
       fs.mkdirSync(recordingsDir, { recursive: true });
     }
-    
-    const filePath = path.join(recordingsDir, filename);
-    fs.writeFileSync(filePath, buffer);
-    
-    return { success: true, filePath };
+
+    // Sanitize filename to prevent path traversal
+    const safeFilename = path.basename(filename).replace(/\0/g, '');
+    const safeFilePath = path.resolve(recordingsDir, safeFilename);
+    const resolvedRecordingsDir = path.resolve(recordingsDir);
+
+    // Verify the resolved path is within the intended directory
+    if (!safeFilePath.startsWith(resolvedRecordingsDir)) {
+      throw new Error('Invalid file path');
+    }
+
+    fs.writeFileSync(safeFilePath, buffer);
+
+    return { success: true, filePath: safeFilePath };
   } catch (error) {
     console.error('Error saving recording:', error);
     return { success: false, error: error.message };

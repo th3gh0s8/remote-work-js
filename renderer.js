@@ -1,16 +1,5 @@
 const { ipcRenderer } = require('electron');
 
-// DOM elements
-const checkInBtn = document.getElementById('check-in-btn');
-const breakBtn = document.getElementById('break-btn');
-const checkOutBtn = document.getElementById('check-out-btn');
-const statusText = document.getElementById('screenshot-status');
-const activityBadge = document.getElementById('activity-badge');
-const downloadSpeedElement = document.getElementById('download-speed');
-const uploadSpeedElement = document.getElementById('upload-speed');
-const totalDownloadedElement = document.getElementById('total-downloaded');
-const totalUploadedElement = document.getElementById('total-uploaded');
-
 // State variables
 let isCheckedIn = false;
 let isOnBreak = false;
@@ -22,114 +11,131 @@ let mediaRecorder = null;
 let recordedChunks = [];
 let recordingInterval = null;
 
-// Check-in button functionality
-checkInBtn.addEventListener('click', async () => {
-  if (!isCheckedIn) {
-    statusText.textContent = 'Checking in... Starting work session.';
+// Wait for DOM to be fully loaded before accessing elements
+document.addEventListener('DOMContentLoaded', function() {
+  // DOM elements
+  const checkInBtn = document.getElementById('check-in-btn');
+  const breakBtn = document.getElementById('break-btn');
+  const checkOutBtn = document.getElementById('check-out-btn');
+  const statusText = document.getElementById('screenshot-status');
+  const activityBadge = document.getElementById('activity-badge');
+  const downloadSpeedElement = document.getElementById('download-speed');
+  const uploadSpeedElement = document.getElementById('upload-speed');
+  const totalDownloadedElement = document.getElementById('total-downloaded');
+  const totalUploadedElement = document.getElementById('total-uploaded');
 
-    // Update UI immediately to provide feedback
-    isCheckedIn = true;
-    isOnBreak = false;
-    startTime = new Date();
-    totalTimeWorked = 0;
-    totalBreakTime = 0;
+  // Check-in button functionality
+  checkInBtn.addEventListener('click', async () => {
+    if (!isCheckedIn) {
+      statusText.textContent = 'Checking in... Starting work session.';
 
-    checkInBtn.style.display = 'none';
-    breakBtn.style.display = 'inline-block';
-    checkOutBtn.style.display = 'inline-block';
+      // Update UI immediately to provide feedback
+      isCheckedIn = true;
+      isOnBreak = false;
+      startTime = new Date();
+      totalTimeWorked = 0;
+      totalBreakTime = 0;
 
-    if (activityBadge) activityBadge.classList.add('active');
+      checkInBtn.style.display = 'none';
+      breakBtn.style.display = 'inline-block';
+      checkOutBtn.style.display = 'inline-block';
 
-    // Update status text with timer
-    updateTimerDisplay();
-    recordingInterval = setInterval(updateTimerDisplay, 1000);
+      if (activityBadge) activityBadge.classList.add('active');
 
-    statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Starting screen recording...`;
+      // Update status text with timer
+      updateTimerDisplay();
+      recordingInterval = setInterval(updateTimerDisplay, 1000);
 
-    try {
-      // Start screen recording in the background
-      await startScreenRecording();
-      statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Recording in background...`;
-    } catch (error) {
-      console.error('Screen recording failed but check-in continues:', error);
-      statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Screen recording failed: ${error.message}`;
+      statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Starting screen recording...`;
+
+      try {
+        // Start screen recording in the background
+        await startScreenRecording();
+        statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Recording in background...`;
+      } catch (error) {
+        console.error('Screen recording failed but check-in continues:', error);
+        statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Screen recording failed: ${error.message}`;
+      }
     }
-  }
-});
+  });
 
-// Break button functionality
-breakBtn.addEventListener('click', () => {
-  if (isCheckedIn && !isOnBreak) {
-    // Going on break - pause screen recording
-    pauseScreenRecording();
+  // Break button functionality
+  breakBtn.addEventListener('click', () => {
+    if (isCheckedIn && !isOnBreak) {
+      // Going on break - pause screen recording
+      pauseScreenRecording();
 
-    isOnBreak = true;
-    breakStartTime = new Date();
+      isOnBreak = true;
+      breakStartTime = new Date();
 
-    breakBtn.textContent = 'Return from Break';
-    statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong>`;
-  } else if (isCheckedIn && isOnBreak) {
-    // Returning from break - resume screen recording
-    resumeScreenRecording();
+      breakBtn.textContent = 'Return from Break';
+      statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong>`;
+    } else if (isCheckedIn && isOnBreak) {
+      // Returning from break - resume screen recording
+      resumeScreenRecording();
 
-    isOnBreak = false;
-    const breakDuration = (new Date() - breakStartTime) / 1000; // in seconds
-    totalBreakTime += breakDuration;
-    breakStartTime = null;
+      isOnBreak = false;
+      const breakDuration = (new Date() - breakStartTime) / 1000; // in seconds
+      totalBreakTime += breakDuration;
+      breakStartTime = null;
 
-    breakBtn.textContent = 'Break Time';
-    statusText.innerHTML = `Returned from break. Back to work at <strong>${formatTime(new Date())}</strong>`;
-  }
-});
-
-// Check-out button functionality
-checkOutBtn.addEventListener('click', async () => {
-  if (isCheckedIn) {
-    // Stop screen recording
-    await stopScreenRecording();
-
-    // Calculate total time worked
-    const currentTime = new Date();
-    const sessionDuration = isOnBreak && breakStartTime
-      ? (breakStartTime - startTime) / 1000  // Time until break started
-      : (currentTime - startTime) / 1000;    // Total time if no break or after returning
-
-    totalTimeWorked += sessionDuration;
-
-    // Format times for display
-    const workedTimeStr = formatSeconds(totalTimeWorked);
-    const breakTimeStr = formatSeconds(totalBreakTime);
-    const netWorkedTime = formatSeconds(totalTimeWorked - totalBreakTime);
-
-    statusText.innerHTML = `
-      Checked out at <strong>${formatTime(currentTime)}</strong><br>
-      Total worked: <strong>${workedTimeStr}</strong><br>
-      Break time: <strong>${breakTimeStr}</strong><br>
-      Net work time: <strong>${netWorkedTime}</strong>
-    `;
-
-    // Reset state
-    isCheckedIn = false;
-    isOnBreak = false;
-    startTime = null;
-    breakStartTime = null;
-    totalTimeWorked = 0;
-    totalBreakTime = 0;
-
-    if (recordingInterval) {
-      clearInterval(recordingInterval);
-      recordingInterval = null;
+      breakBtn.textContent = 'Break Time';
+      statusText.innerHTML = `Returned from break. Back to work at <strong>${formatTime(new Date())}</strong>`;
     }
+  });
 
-    // Update UI
-    checkInBtn.style.display = 'inline-block';
-    breakBtn.style.display = 'none';
-    checkOutBtn.style.display = 'none';
-    breakBtn.textContent = 'Break Time';
+  // Check-out button functionality
+  checkOutBtn.addEventListener('click', async () => {
+    if (isCheckedIn) {
+      // Stop screen recording
+      await stopScreenRecording();
 
-    if (activityBadge) activityBadge.classList.remove('active');
-  }
-});
+      // Calculate total time worked
+      const currentTime = new Date();
+      // Add current break time if user is on break
+      const currentBreak = isOnBreak && breakStartTime ? (Date.now() - breakStartTime) / 1000 : 0;
+      totalBreakTime += currentBreak;
+
+      const sessionDuration = isOnBreak && breakStartTime
+        ? (breakStartTime - startTime) / 1000  // Time until break started
+        : (currentTime - startTime) / 1000;    // Total time if no break or after returning
+
+      totalTimeWorked += sessionDuration;
+
+      // Format times for display
+      const workedTimeStr = formatSeconds(totalTimeWorked);
+      const breakTimeStr = formatSeconds(totalBreakTime);
+      const netWorkedTime = formatSeconds(totalTimeWorked - totalBreakTime);
+
+      statusText.innerHTML = `
+        Checked out at <strong>${formatTime(currentTime)}</strong><br>
+        Total worked: <strong>${workedTimeStr}</strong><br>
+        Break time: <strong>${breakTimeStr}</strong><br>
+        Net work time: <strong>${netWorkedTime}</strong>
+      `;
+
+      // Reset state
+      isCheckedIn = false;
+      isOnBreak = false;
+      startTime = null;
+      breakStartTime = null;
+      totalTimeWorked = 0;
+      totalBreakTime = 0;
+
+      if (recordingInterval) {
+        clearInterval(recordingInterval);
+        recordingInterval = null;
+      }
+
+      // Update UI
+      checkInBtn.style.display = 'inline-block';
+      breakBtn.style.display = 'none';
+      checkOutBtn.style.display = 'none';
+      breakBtn.textContent = 'Break Time';
+
+      if (activityBadge) activityBadge.classList.remove('active');
+    }
+  });
 
 // Timer display function
 function updateTimerDisplay() {
@@ -271,8 +277,8 @@ async function startScreenRecording() {
         const arrayBuffer = await blob.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
-        // Auto-save file using IPC to main process
-        const result = await ipcRenderer.invoke('auto-save-recording', buffer, filename);
+        // Use the correct IPC channel name that exists in main_simplified.js
+        const result = await ipcRenderer.invoke('save-recording', buffer, filename);
 
         if (result.success) {
           console.log(`Work session recording saved to: ${result.filePath}`);
@@ -365,4 +371,6 @@ async function stopScreenRecording() {
     console.log('Cannot stop - recorder state:', mediaRecorder ? mediaRecorder.state : 'not initialized');
   }
 }
+
+}); // Close the DOMContentLoaded event listener
 
