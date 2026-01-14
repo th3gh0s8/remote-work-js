@@ -85,28 +85,29 @@ ipcMain.handle('start-recording', async (event, sourceId) => {
   }
 });
 
-// Handle saving the recorded file
-ipcMain.handle('save-recording', async (event, buffer) => {
+// Handle auto-saving the recorded file to a default location
+ipcMain.handle('save-recording', async (event, buffer, filename) => {
   try {
-    const { dialog } = require('electron');
+    const fs = require('fs');
+    const path = require('path');
 
-    const { filePath } = await dialog.showSaveDialog({
-      filters: [
-        { name: 'MKV Video', extensions: ['mkv'] },
-        { name: 'WebM Video', extensions: ['webm'] }
-      ],
-      defaultPath: `capture-${Date.now()}.mkv`
-    });
+    // Create a 'captures' directory in the project root
+    const recordingsDir = path.join(__dirname, 'captures');
 
-    if (filePath) {
-      const fs = require('fs');
-      fs.writeFileSync(filePath, buffer);
-      return { success: true, filePath };
-    } else {
-      return { success: false, error: 'No file path selected' };
+    // Create the directory if it doesn't exist
+    if (!fs.existsSync(recordingsDir)) {
+      fs.mkdirSync(recordingsDir, { recursive: true });
     }
+
+    // Create the full file path
+    const filePath = path.join(recordingsDir, filename);
+
+    // Write the file
+    fs.writeFileSync(filePath, buffer);
+
+    return { success: true, filePath };
   } catch (error) {
-    console.error('Error saving recording:', error);
+    console.error('Error auto-saving recording:', error);
     return { success: false, error: error.message };
   }
 });

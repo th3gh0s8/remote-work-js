@@ -264,13 +264,13 @@ async function startScreenRecording() {
         return;
       }
 
-      // Create a blob from recorded chunks
+      // Create a blob from recorded chunks (using webm format but saving as mkv)
       const blob = new Blob(recordedChunks, { type: 'video/webm' });
       console.log(`Created blob with size: ${blob.size} bytes`);
 
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `work-session-${timestamp}.webm`;
+      const filename = `work-session-${timestamp}.mkv`;
 
       try {
         // Convert blob to buffer
