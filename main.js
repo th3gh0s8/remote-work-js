@@ -1,7 +1,10 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
+const DatabaseConnection = require('./db_connection');
 
 let mainWindow;
+let loginWindow = null;
+const db = new DatabaseConnection();
 
 function createWindow() {
   const { screen } = require('electron');
@@ -53,7 +56,61 @@ function createWindow() {
 // System tray functionality
 let tray = null;
 
-app.whenReady().then(() => {
+// Create login window
+function createLoginWindow() {
+  loginWindow = new BrowserWindow({
+    width: 450,
+    height: 600,
+    resizable: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+      enableRemoteModule: true
+    },
+    icon: path.join(__dirname, 'assets/icon.png')
+  });
+
+  loginWindow.loadFile('login.html');
+
+  // Open DevTools for debugging
+  // loginWindow.webContents.openDevTools({ mode: 'detach' });
+
+  loginWindow.on('closed', () => {
+    loginWindow = null;
+  });
+}
+
+app.whenReady().then(async () => {
+  // Connect to database
+  const dbConnected = await db.connect();
+  if (!dbConnected) {
+    console.error('Failed to connect to database');
+    // You might want to show an error message to the user here
+  }
+
+  // Show login window first
+  createLoginWindow();
+});
+
+// Handle login
+ipcMain.handle('login', async (event, repid, mobile) => {
+  try {
+    const result = await db.authenticateUser(repid, mobile);
+    return result;
+  } catch (error) {
+    console.error('Login error:', error);
+    return { success: false, message: 'An error occurred during authentication' };
+  }
+});
+
+// Handle successful login
+ipcMain.handle('login-success', async (event, user) => {
+  // Close login window
+  if (loginWindow && !loginWindow.isDestroyed()) {
+    loginWindow.close();
+  }
+
+  // Create main application window
   createWindow();
 
   // Create tray icon
