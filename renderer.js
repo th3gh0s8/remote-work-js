@@ -270,7 +270,7 @@ async function startScreenRecording() {
 
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `work-session-${timestamp}.mkv`;
+      const filename = `work-session-${timestamp}.webm`;
 
       try {
         // Convert blob to buffer

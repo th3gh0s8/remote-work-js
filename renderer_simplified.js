@@ -305,4 +305,4 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('Recording stopped');
     }
   }
-});
+}
