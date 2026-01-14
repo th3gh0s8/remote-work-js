@@ -27,6 +27,7 @@
     "electron": "^39.2.4"
   },
   "dependencies": {
-    "@electron/remote": "^2.1.0"
+    "@electron/remote": "^2.1.0",
+    "mysql2": "^3.9.8"
   }
 }
