@@ -2,15 +2,22 @@ const { ipcRenderer } = require('electron');
 
 console.log('Renderer script loaded');
 
-// DOM elements
-const checkInBtn = document.getElementById('check-in-btn');
-const breakBtn = document.getElementById('break-btn');
-const checkOutBtn = document.getElementById('check-out-btn');
-const statusText = document.getElementById('screenshot-status');
-const activityBadge = document.getElementById('activity-badge');
+// DOM elements - will be retrieved after DOM loads
+let checkInBtn, breakBtn, checkOutBtn, statusText, activityBadge;
+
+// State variables - declared in outer scope to be accessible to all functions
+let isCheckedIn = false;
+let isOnBreak = false;
+let startTime = null;
+let breakStartTime = null;
+let totalTimeWorked = 0;
+let totalBreakTime = 0;
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingInterval = null;
 
 // Check if elements exist
-console.log('Elements found:', {
+console.log('Initial elements found:', {
   checkInBtn: !!checkInBtn,
   breakBtn: !!breakBtn,
   checkOutBtn: !!checkOutBtn,
@@ -23,11 +30,11 @@ document.addEventListener('DOMContentLoaded', function() {
   console.log('DOM fully loaded and parsed');
 
   // Re-get elements after DOM is loaded
-  const checkInBtn = document.getElementById('check-in-btn');
-  const breakBtn = document.getElementById('break-btn');
-  const checkOutBtn = document.getElementById('check-out-btn');
-  const statusText = document.getElementById('screenshot-status');
-  const activityBadge = document.getElementById('activity-badge');
+  checkInBtn = document.getElementById('check-in-btn');
+  breakBtn = document.getElementById('break-btn');
+  checkOutBtn = document.getElementById('check-out-btn');
+  statusText = document.getElementById('screenshot-status');
+  activityBadge = document.getElementById('activity-badge');
 
   console.log('Elements found after DOM load:', {
     checkInBtn: !!checkInBtn,
@@ -36,17 +43,6 @@ document.addEventListener('DOMContentLoaded', function() {
     statusText: !!statusText,
     activityBadge: !!activityBadge
   });
-
-  // State variables
-  let isCheckedIn = false;
-  let isOnBreak = false;
-  let startTime = null;
-  let breakStartTime = null;
-  let totalTimeWorked = 0;
-  let totalBreakTime = 0;
-  let mediaRecorder = null;
-  let recordedChunks = [];
-  let recordingInterval = null;
 
   // Check-in button functionality
   if (checkInBtn) {
@@ -170,10 +166,10 @@ document.addEventListener('DOMContentLoaded', function() {
 // Timer display function
 function updateTimerDisplay() {
   if (!startTime || !isCheckedIn) return;
-  
+
   let currentTime = new Date();
   let elapsed;
-  
+
   if (isOnBreak && breakStartTime) {
     // Calculate time worked before break
     elapsed = (breakStartTime - startTime) / 1000;
@@ -182,9 +178,9 @@ function updateTimerDisplay() {
     const totalSessionTime = (currentTime - startTime) / 1000;
     elapsed = totalSessionTime - totalBreakTime;
   }
-  
+
   const formattedTime = formatSeconds(elapsed);
-  
+
   if (isOnBreak) {
     statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong><br>
                             Time worked: <strong>${formattedTime}</strong>`;
