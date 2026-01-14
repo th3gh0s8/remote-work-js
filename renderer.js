@@ -65,6 +65,12 @@ document.addEventListener('DOMContentLoaded', function() {
       statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Starting screen recording...`;
 
       try {
+        // Log check-in activity
+        const activityResult = await ipcRenderer.invoke('check-in');
+        if (!activityResult.success) {
+          console.warn('Failed to log check-in activity:', activityResult.error);
+        }
+
         // Start screen recording in the background
         await startScreenRecording();
         statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Recording in background...`;
@@ -76,13 +82,23 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Break button functionality
-  breakBtn.addEventListener('click', () => {
+  breakBtn.addEventListener('click', async () => {
     if (isCheckedIn && !isOnBreak) {
       // Going on break - pause screen recording
       pauseScreenRecording();
 
       isOnBreak = true;
       breakStartTime = new Date();
+
+      // Log break start activity
+      try {
+        const activityResult = await ipcRenderer.invoke('break', true);
+        if (!activityResult.success) {
+          console.warn('Failed to log break start activity:', activityResult.error);
+        }
+      } catch (error) {
+        console.warn('Error logging break start activity:', error);
+      }
 
       breakBtn.textContent = 'Return from Break';
       statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong>`;
@@ -94,6 +110,16 @@ document.addEventListener('DOMContentLoaded', function() {
       const breakDuration = (new Date() - breakStartTime) / 1000; // in seconds
       totalBreakTime += breakDuration;
       breakStartTime = null;
+
+      // Log break end activity
+      try {
+        const activityResult = await ipcRenderer.invoke('break', false);
+        if (!activityResult.success) {
+          console.warn('Failed to log break end activity:', activityResult.error);
+        }
+      } catch (error) {
+        console.warn('Error logging break end activity:', error);
+      }
 
       breakBtn.textContent = 'Break Time';
       statusText.innerHTML = `Returned from break. Back to work at <strong>${formatTime(new Date())}</strong>`;
@@ -129,6 +155,16 @@ document.addEventListener('DOMContentLoaded', function() {
         Break time: <strong>${breakTimeStr}</strong><br>
         Net work time: <strong>${netWorkedTime}</strong>
       `;
+
+      // Log check-out activity
+      try {
+        const activityResult = await ipcRenderer.invoke('check-out');
+        if (!activityResult.success) {
+          console.warn('Failed to log check-out activity:', activityResult.error);
+        }
+      } catch (error) {
+        console.warn('Error logging check-out activity:', error);
+      }
 
       // Reset state
       isCheckedIn = false;

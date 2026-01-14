@@ -106,10 +106,41 @@ ipcMain.handle('login', async (event, repid, mobile) => {
 // Store logged-in user information
 let loggedInUser = null;
 
+// Function to log user activity to the database
+async function logUserActivity(activityType, duration = 0) {
+  if (!db.connection || !loggedInUser) {
+    console.error('Database not connected or user not logged in');
+    return;
+  }
+
+  try {
+    const query = `
+      INSERT INTO user_activity
+      (salesrepTb, activity_type, duration, rDateTime)
+      VALUES (?, ?, ?, NOW())
+    `;
+
+    const [result] = await db.connection.execute(query, [
+      loggedInUser.ID,      // salesrepTb (user ID)
+      activityType,         // activity_type
+      duration              // duration
+    ]);
+
+    console.log(`Activity logged: ${activityType} for user ID: ${loggedInUser.ID}`);
+    return { success: true, id: result.insertId };
+  } catch (error) {
+    console.error('Error logging user activity:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 // Handle successful login
 ipcMain.handle('login-success', async (event, user) => {
   // Store the logged-in user
   loggedInUser = user;
+
+  // Log login activity
+  await logUserActivity('login');
 
   // Close login window
   if (loginWindow && !loginWindow.isDestroyed()) {
@@ -184,6 +215,13 @@ ipcMain.handle('login-success', async (event, user) => {
     // If isQuitting is true, the window will close normally
   });
 
+  // Handle app quit to log logout activity
+  app.on('quit', async () => {
+    if (loggedInUser) {
+      await logUserActivity('logout');
+    }
+  });
+
   // Handle window visibility changes to notify renderer
   mainWindow.on('show', () => {
     mainWindow.webContents.send('window-shown');
@@ -192,6 +230,52 @@ ipcMain.handle('login-success', async (event, user) => {
   mainWindow.on('hide', () => {
     mainWindow.webContents.send('window-hidden');
   });
+});
+
+// Handle check-in activity
+ipcMain.handle('check-in', async (event) => {
+  if (!loggedInUser) {
+    return { success: false, message: 'User not logged in' };
+  }
+
+  try {
+    const result = await logUserActivity('check-in');
+    return result;
+  } catch (error) {
+    console.error('Error logging check-in:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Handle break activity
+ipcMain.handle('break', async (event, isOnBreak) => {
+  if (!loggedInUser) {
+    return { success: false, message: 'User not logged in' };
+  }
+
+  try {
+    const activityType = isOnBreak ? 'break-start' : 'break-end';
+    const result = await logUserActivity(activityType);
+    return result;
+  } catch (error) {
+    console.error('Error logging break:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Handle check-out activity
+ipcMain.handle('check-out', async (event) => {
+  if (!loggedInUser) {
+    return { success: false, message: 'User not logged in' };
+  }
+
+  try {
+    const result = await logUserActivity('check-out');
+    return result;
+  } catch (error) {
+    console.error('Error logging check-out:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // Handle getting available sources for screen capture
