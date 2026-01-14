@@ -4,14 +4,39 @@ const path = require('path');
 let mainWindow;
 
 function createWindow() {
+  const { screen } = require('electron');
+
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      enableRemoteModule: true,
+      // Enable screen capture permissions
+      autoplayPolicy: 'no-user-gesture-required'
     },
-    icon: path.join(__dirname, 'assets/icon.png') // Optional: Add an icon
+    icon: path.join(__dirname, 'assets/icon.png'), // Optional: Add an icon
+    webSecurity: false, // Allow mixed content for screen capture
+    // Enable screen capture
+    alwaysOnTop: false,
+    fullscreenable: true
+  });
+
+  // Configure session to allow screen capture
+  const ses = mainWindow.webContents.session;
+  ses.setDisplayMediaRequestHandler((request, callback) => {
+    // For screen capture, we'll allow access to screen sources
+    callback({ video: true, audio: false });
+  });
+
+  // Enable media access for screen capture
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    if (permission === 'media' || permission === 'desktop-capture') {
+      callback(true); // Grant media and desktop capture access
+    } else {
+      callback(false); // Deny other permissions
+    }
   });
 
   mainWindow.loadFile('index.html');
@@ -20,11 +45,14 @@ function createWindow() {
 // Handle getting available sources for screen capture
 ipcMain.handle('get-sources', async () => {
   try {
+    console.log('Getting screen sources...');
     const sources = await desktopCapturer.getSources({
       types: ['screen', 'window'],
       thumbnailSize: { width: 150, height: 150 }
     });
-    
+
+    console.log(`Found ${sources.length} sources:`, sources.map(s => s.name));
+
     return sources.map(source => ({
       name: source.name,
       id: source.id,

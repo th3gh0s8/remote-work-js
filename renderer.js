@@ -1,9 +1,9 @@
 const { ipcRenderer } = require('electron');
 
 // DOM elements
-const recordBtn = document.getElementById('record-btn');
-const pauseBtn = document.getElementById('pause-btn');
-const stopBtn = document.getElementById('stop-btn');
+const checkInBtn = document.getElementById('check-in-btn');
+const breakBtn = document.getElementById('break-btn');
+const checkOutBtn = document.getElementById('check-out-btn');
 const statusText = document.getElementById('screenshot-status');
 const activityBadge = document.getElementById('activity-badge');
 const downloadSpeedElement = document.getElementById('download-speed');
@@ -11,121 +11,383 @@ const uploadSpeedElement = document.getElementById('upload-speed');
 const totalDownloadedElement = document.getElementById('total-downloaded');
 const totalUploadedElement = document.getElementById('total-uploaded');
 
-let mediaRecorder;
+// State variables
+let isCheckedIn = false;
+let isOnBreak = false;
+let startTime = null;
+let breakStartTime = null;
+let totalTimeWorked = 0;
+let totalBreakTime = 0;
+let mediaRecorder = null;
 let recordedChunks = [];
-let isRecording = false;
-let isPaused = false;
+let recordingInterval = null;
 
-// Record button functionality
-recordBtn.addEventListener('click', async () => {
-  if (!isRecording) {
-    // Start recording - automatically use the primary screen
+// Check-in button functionality
+checkInBtn.addEventListener('click', async () => {
+  if (!isCheckedIn) {
+    statusText.textContent = 'Checking in... Starting work session.';
+
+    // Update UI immediately to provide feedback
+    isCheckedIn = true;
+    isOnBreak = false;
+    startTime = new Date();
+    totalTimeWorked = 0;
+    totalBreakTime = 0;
+
+    checkInBtn.style.display = 'none';
+    breakBtn.style.display = 'inline-block';
+    checkOutBtn.style.display = 'inline-block';
+
+    if (activityBadge) activityBadge.classList.add('active');
+
+    // Update status text with timer
+    updateTimerDisplay();
+    recordingInterval = setInterval(updateTimerDisplay, 1000);
+
+    statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Starting screen recording...`;
+
     try {
-      statusText.textContent = 'Starting capture...';
+      // Start screen recording in the background
+      await startScreenRecording();
+      statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Recording in background...`;
+    } catch (error) {
+      console.error('Screen recording failed but check-in continues:', error);
+      statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Screen recording failed: ${error.message}`;
+    }
+  }
+});
 
-      // Get screen sources to capture the primary screen
-      const sources = await ipcRenderer.invoke('get-sources');
-      if (sources.length === 0) {
-        throw new Error('No screen sources available');
-      }
+// Break button functionality
+breakBtn.addEventListener('click', () => {
+  if (isCheckedIn && !isOnBreak) {
+    // Going on break - pause screen recording
+    pauseScreenRecording();
 
-      // Use the first screen source (usually the primary display)
-      const selectedSourceId = sources[0].id;
-      statusText.textContent = `Capturing screen: ${sources[0].name}`;
+    isOnBreak = true;
+    breakStartTime = new Date();
 
-      // Get screen stream
-      const stream = await navigator.mediaDevices.getUserMedia({
+    breakBtn.textContent = 'Return from Break';
+    statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong>`;
+  } else if (isCheckedIn && isOnBreak) {
+    // Returning from break - resume screen recording
+    resumeScreenRecording();
+
+    isOnBreak = false;
+    const breakDuration = (new Date() - breakStartTime) / 1000; // in seconds
+    totalBreakTime += breakDuration;
+    breakStartTime = null;
+
+    breakBtn.textContent = 'Break Time';
+    statusText.innerHTML = `Returned from break. Back to work at <strong>${formatTime(new Date())}</strong>`;
+  }
+});
+
+// Check-out button functionality
+checkOutBtn.addEventListener('click', async () => {
+  if (isCheckedIn) {
+    // Stop screen recording
+    await stopScreenRecording();
+
+    // Calculate total time worked
+    const currentTime = new Date();
+    const sessionDuration = isOnBreak && breakStartTime
+      ? (breakStartTime - startTime) / 1000  // Time until break started
+      : (currentTime - startTime) / 1000;    // Total time if no break or after returning
+
+    totalTimeWorked += sessionDuration;
+
+    // Format times for display
+    const workedTimeStr = formatSeconds(totalTimeWorked);
+    const breakTimeStr = formatSeconds(totalBreakTime);
+    const netWorkedTime = formatSeconds(totalTimeWorked - totalBreakTime);
+
+    statusText.innerHTML = `
+      Checked out at <strong>${formatTime(currentTime)}</strong><br>
+      Total worked: <strong>${workedTimeStr}</strong><br>
+      Break time: <strong>${breakTimeStr}</strong><br>
+      Net work time: <strong>${netWorkedTime}</strong>
+    `;
+
+    // Reset state
+    isCheckedIn = false;
+    isOnBreak = false;
+    startTime = null;
+    breakStartTime = null;
+    totalTimeWorked = 0;
+    totalBreakTime = 0;
+
+    if (recordingInterval) {
+      clearInterval(recordingInterval);
+      recordingInterval = null;
+    }
+
+    // Update UI
+    checkInBtn.style.display = 'inline-block';
+    breakBtn.style.display = 'none';
+    checkOutBtn.style.display = 'none';
+    breakBtn.textContent = 'Break Time';
+
+    if (activityBadge) activityBadge.classList.remove('active');
+  }
+});
+
+// Timer display function
+function updateTimerDisplay() {
+  if (!startTime || !isCheckedIn) return;
+
+  let currentTime = new Date();
+  let elapsed;
+
+  if (isOnBreak && breakStartTime) {
+    // Calculate time worked before break
+    elapsed = (breakStartTime - startTime) / 1000;
+  } else {
+    // Calculate total time since check-in (excluding break time)
+    const totalSessionTime = (currentTime - startTime) / 1000;
+    elapsed = totalSessionTime - totalBreakTime;
+  }
+
+  const formattedTime = formatSeconds(elapsed);
+
+  if (isOnBreak) {
+    statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong><br>
+                            Time worked: <strong>${formattedTime}</strong>`;
+  } else {
+    statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong><br>
+                            Time worked: <strong>${formattedTime}</strong>`;
+  }
+}
+
+// Helper function to format time
+function formatTime(date) {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Helper function to format seconds to HH:MM:SS
+function formatSeconds(seconds) {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Screen recording functions
+async function startScreenRecording() {
+  try {
+    statusText.textContent = 'Requesting screen access...';
+
+    // Get screen sources to capture the primary screen
+    console.log('Requesting screen sources...');
+    const sources = await ipcRenderer.invoke('get-sources');
+    console.log('Available sources:', sources);
+    if (sources.length === 0) {
+      throw new Error('No screen sources available');
+    }
+
+    // Use the first screen source (usually the primary display)
+    const selectedSourceId = sources[0].id;
+    console.log('Selected source ID:', selectedSourceId);
+
+    // Try different approaches to get the screen stream
+    let stream = null;
+
+    // Approach 1: Standard desktop capture
+    try {
+      const constraints = {
         audio: false,
         video: {
           mandatory: {
             chromeMediaSource: 'desktop',
             chromeMediaSourceId: selectedSourceId,
             minWidth: 1280,
-            minHeight: 720
+            minHeight: 720,
+            maxWidth: 1920,
+            maxHeight: 1080
           }
-        }
-      });
-
-      // Create MediaRecorder
-      mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
-      recordedChunks = [];
-
-      mediaRecorder.ondataavailable = event => {
-        if (event.data.size > 0) {
-          recordedChunks.push(event.data);
         }
       };
 
-      mediaRecorder.onstop = async () => {
-        // Create a blob from recorded chunks (still using webm from the MediaRecorder)
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('Screen stream obtained successfully with standard approach', stream);
+    } catch (standardError) {
+      console.warn('Standard approach failed:', standardError);
 
-        // For MKV, we'll need to change the file extension when saving
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `screen-capture-${timestamp}.mkv`;
-        const buffer = Buffer.from(await blob.arrayBuffer());
+      // Approach 2: Alternative constraints format
+      try {
+        const constraints = {
+          audio: false,
+          video: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: selectedSourceId,
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          }
+        };
 
-        // Auto-save file using IPC to main process with a default filename
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log('Screen stream obtained with alternative approach', stream);
+      } catch (altError) {
+        console.warn('Alternative approach failed:', altError);
+
+        // Approach 3: Simple constraints
+        try {
+          const constraints = {
+            video: {
+              mediaSource: 'screen'
+            },
+            audio: false
+          };
+
+          stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+          console.log('Screen stream obtained with display media approach', stream);
+        } catch (displayError) {
+          console.error('All approaches failed:', displayError);
+          // Even if screen capture fails, allow the check-in to proceed
+          statusText.textContent = `Screen capture failed: ${displayError.message}. Work session started anyway.`;
+          return; // Return early but allow the check-in to continue
+        }
+      }
+    }
+
+    // Verify that the stream has video tracks
+    const videoTracks = stream.getVideoTracks();
+    if (videoTracks.length === 0) {
+      console.warn('No video tracks in stream, continuing without recording');
+      statusText.textContent = 'No video tracks found, proceeding without screen recording.';
+      return; // Return early but allow the check-in to continue
+    }
+
+    console.log('Video tracks:', videoTracks);
+
+    // Create MediaRecorder with fallback MIME types
+    let options = { mimeType: 'video/webm;codecs=vp9' };
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      console.warn('VP9 codec not supported, trying VP8');
+      options = { mimeType: 'video/webm;codecs=vp8' };
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        console.warn('VP8 codec not supported, using default webm');
+        options = { mimeType: 'video/webm' };
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+          console.warn('WebM not supported, using default');
+          options = {};
+        }
+      }
+    }
+
+    mediaRecorder = new MediaRecorder(stream, options);
+    console.log('MediaRecorder created with options:', options);
+
+    // Initialize recorded chunks array
+    recordedChunks = [];
+
+    mediaRecorder.ondataavailable = event => {
+      console.log('Data available from MediaRecorder:', event.data.size);
+      if (event.data && event.data.size > 0) {
+        recordedChunks.push(event.data);
+        console.log(`Added chunk, total chunks: ${recordedChunks.length}`);
+      }
+    };
+
+    mediaRecorder.onstop = async () => {
+      console.log('MediaRecorder stopped. Processing chunks:', recordedChunks.length);
+      if (recordedChunks.length === 0) {
+        console.warn('No recorded chunks to save');
+        statusText.textContent = 'Warning: No recording data captured';
+        return;
+      }
+
+      // Create a blob from recorded chunks
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      console.log(`Created blob with size: ${blob.size} bytes`);
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `work-session-${timestamp}.mkv`;
+
+      try {
+        // Convert blob to buffer
+        const arrayBuffer = await blob.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+
+        // Auto-save file using IPC to main process
         const result = await ipcRenderer.invoke('auto-save-recording', buffer, filename);
 
         if (result.success) {
-          statusText.textContent = `Capture automatically saved to: ${result.filePath}`;
+          console.log(`Work session recording saved to: ${result.filePath}`);
+          statusText.textContent = `Work session saved: ${result.filePath}`;
         } else {
-          statusText.textContent = `Error saving capture: ${result.error}`;
+          console.error(`Error saving work session recording: ${result.error}`);
+          statusText.textContent = `Error saving work session: ${result.error}`;
         }
+      } catch (saveError) {
+        console.error('Error converting blob to buffer or saving:', saveError);
+        statusText.textContent = `Error saving recording: ${saveError.message}`;
+      }
 
-        // Clean up the stream
-        stream.getTracks().forEach(track => track.stop());
+      // Clean up the stream
+      stream.getTracks().forEach(track => {
+        track.stop();
+        console.log('Stopped track:', track.kind);
+      });
+    };
 
-        // Reset buttons to start state
-        isRecording = false;
-        isPaused = false;
-        recordBtn.style.display = 'inline-block';
-        pauseBtn.style.display = 'none';
-        stopBtn.style.display = 'none';
-        pauseBtn.disabled = true;
-        if (activityBadge) activityBadge.classList.remove('active');
-      };
+    // Start capture
+    mediaRecorder.start(1000); // Collect data every 1 second
+    console.log('MediaRecorder started with 1s intervals');
 
-      // Start capture
-      mediaRecorder.start();
-      isRecording = true;
-      recordBtn.style.display = 'none';
-      pauseBtn.style.display = 'inline-block';
-      stopBtn.style.display = 'inline-block';
-      pauseBtn.disabled = false;
-      statusText.textContent = 'Capturing in progress...';
-      if (activityBadge) activityBadge.classList.add('active');
-    } catch (error) {
-      console.error('Error starting capture:', error);
-      statusText.textContent = `Error starting capture: ${error.message}`;
-    }
+    // Update status
+    statusText.textContent = 'Screen recording started...';
+
+    // Log recording state changes
+    mediaRecorder.onstart = () => {
+      console.log('Recording started');
+      statusText.textContent = 'Recording in progress...';
+    };
+    mediaRecorder.onpause = () => {
+      console.log('Recording paused');
+      statusText.textContent = 'Recording paused...';
+    };
+    mediaRecorder.onresume = () => {
+      console.log('Recording resumed');
+      statusText.textContent = 'Recording in progress...';
+    };
+    mediaRecorder.onerror = (event) => {
+      console.error('MediaRecorder error:', event);
+      statusText.textContent = `Recording error: ${event.error}`;
+    };
+  } catch (error) {
+    console.error('Error starting screen recording:', error);
+    statusText.textContent = `Screen recording error: ${error.message}`;
+    // Still allow the check-in to proceed even if recording fails
+    // throw error; // Commenting out to allow functionality even if recording fails
   }
-});
+}
 
-// Pause/Resume button functionality
-pauseBtn.addEventListener('click', () => {
-  if (mediaRecorder && isRecording) {
-    if (!isPaused) {
-      // Pause capture
-      mediaRecorder.pause();
-      isPaused = true;
-      pauseBtn.textContent = 'Resume';
-      statusText.textContent = 'Capture paused';
-    } else {
-      // Resume capture
-      mediaRecorder.resume();
-      isPaused = false;
-      pauseBtn.textContent = 'Pause';
-      statusText.textContent = 'Capturing in progress...';
-    }
+async function pauseScreenRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.pause();
+    console.log('Recording paused');
+  } else {
+    console.log('Cannot pause - recorder state:', mediaRecorder ? mediaRecorder.state : 'not initialized');
   }
-});
+}
 
-// Stop button functionality
-stopBtn.addEventListener('click', () => {
+async function resumeScreenRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'paused') {
+    mediaRecorder.resume();
+    console.log('Recording resumed');
+  } else {
+    console.log('Cannot resume - recorder state:', mediaRecorder ? mediaRecorder.state : 'not initialized');
+  }
+}
+
+async function stopScreenRecording() {
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
+    console.log('Recording stopped');
+  } else {
+    console.log('Cannot stop - recorder state:', mediaRecorder ? mediaRecorder.state : 'not initialized');
   }
-});
+}
 
