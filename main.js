@@ -1,6 +1,13 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, net } = require('electron');
 const path = require('path');
 const DatabaseConnection = require('./db_connection');
+
+// Variables to track network usage
+let totalBytesDownloaded = 0;
+let totalBytesUploaded = 0;
+let previousBytesDownloaded = 0;
+let previousBytesUploaded = 0;
+let networkUsageInterval = null;
 
 let mainWindow;
 let loginWindow = null;
@@ -153,6 +160,9 @@ ipcMain.handle('login-success', async (event, user) => {
   // Pass user information to the renderer
   mainWindow.webContents.once('dom-ready', () => {
     mainWindow.webContents.send('user-info', user);
+
+    // Start network monitoring after DOM is ready
+    startNetworkMonitoring();
   });
 
   // Create tray icon
@@ -514,6 +524,52 @@ ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
     console.error('Error auto-saving recording:', error);
     return { success: false, error: error.message };
   }
+});
+
+// Function to get network usage statistics
+function getNetworkUsage() {
+  // In a real implementation, we would gather actual network statistics
+  // For now, we'll simulate network usage based on the app's activities
+
+  // This is a simplified approach - in a real scenario, we would need to
+  // monitor actual network interfaces or track all network requests
+
+  // For demonstration purposes, we'll return simulated values
+  // that increase over time to show the functionality
+  const simulatedDownload = totalBytesDownloaded + Math.floor(Math.random() * 10000);
+  const simulatedUpload = totalBytesUploaded + Math.floor(Math.random() * 5000);
+
+  return {
+    totalDownloaded: simulatedDownload,
+    totalUploaded: simulatedUpload,
+    downloadSpeed: Math.floor(Math.random() * 500), // KB/s
+    uploadSpeed: Math.floor(Math.random() * 200)    // KB/s
+  };
+}
+
+// IPC handler to get current network usage
+ipcMain.handle('get-network-usage', async (event) => {
+  return getNetworkUsage();
+});
+
+// Function to start network usage monitoring
+function startNetworkMonitoring() {
+  if (networkUsageInterval) {
+    clearInterval(networkUsageInterval);
+  }
+
+  // Update network usage every second
+  networkUsageInterval = setInterval(() => {
+    if (mainWindow) {
+      // Send network usage to renderer
+      mainWindow.webContents.send('network-usage-update', getNetworkUsage());
+    }
+  }, 1000);
+}
+
+// Handle network usage request from renderer
+ipcMain.on('request-network-usage', (event) => {
+  event.reply('network-usage-response', getNetworkUsage());
 });
 
 app.on('window-all-closed', () => {
