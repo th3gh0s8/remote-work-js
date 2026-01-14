@@ -11,6 +11,9 @@ let mediaRecorder = null;
 let recordedChunks = [];
 let recordingInterval = null;
 
+// Store user information
+let currentUser = null;
+
 // Wait for DOM to be fully loaded before accessing elements
 document.addEventListener('DOMContentLoaded', function() {
   // DOM elements
@@ -26,6 +29,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Track window visibility state
   let isWindowVisible = true;
+
+  // Listen for user information from main process
+  const { ipcRenderer } = require('electron');
+
+  ipcRenderer.on('user-info', (event, user) => {
+    currentUser = user;
+    console.log('Received user info:', user);
+    // Optionally update UI to show logged in user
+    statusText.textContent = `Logged in as: ${user.Name || user.RepID}. Ready to start recording...`;
+  });
 
   // Check-in button functionality
   checkInBtn.addEventListener('click', async () => {
@@ -52,6 +65,12 @@ document.addEventListener('DOMContentLoaded', function() {
       statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Starting screen recording...`;
 
       try {
+        // Log check-in activity
+        const activityResult = await ipcRenderer.invoke('check-in');
+        if (!activityResult.success) {
+          console.warn('Failed to log check-in activity:', activityResult.error);
+        }
+
         // Start screen recording in the background
         await startScreenRecording();
         statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Recording in background...`;
@@ -63,13 +82,23 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Break button functionality
-  breakBtn.addEventListener('click', () => {
+  breakBtn.addEventListener('click', async () => {
     if (isCheckedIn && !isOnBreak) {
       // Going on break - pause screen recording
       pauseScreenRecording();
 
       isOnBreak = true;
       breakStartTime = new Date();
+
+      // Log break start activity
+      try {
+        const activityResult = await ipcRenderer.invoke('break', true);
+        if (!activityResult.success) {
+          console.warn('Failed to log break start activity:', activityResult.error);
+        }
+      } catch (error) {
+        console.warn('Error logging break start activity:', error);
+      }
 
       breakBtn.textContent = 'Return from Break';
       statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong>`;
@@ -81,6 +110,16 @@ document.addEventListener('DOMContentLoaded', function() {
       const breakDuration = (new Date() - breakStartTime) / 1000; // in seconds
       totalBreakTime += breakDuration;
       breakStartTime = null;
+
+      // Log break end activity
+      try {
+        const activityResult = await ipcRenderer.invoke('break', false);
+        if (!activityResult.success) {
+          console.warn('Failed to log break end activity:', activityResult.error);
+        }
+      } catch (error) {
+        console.warn('Error logging break end activity:', error);
+      }
 
       breakBtn.textContent = 'Break Time';
       statusText.innerHTML = `Returned from break. Back to work at <strong>${formatTime(new Date())}</strong>`;
@@ -116,6 +155,16 @@ document.addEventListener('DOMContentLoaded', function() {
         Break time: <strong>${breakTimeStr}</strong><br>
         Net work time: <strong>${netWorkedTime}</strong>
       `;
+
+      // Log check-out activity
+      try {
+        const activityResult = await ipcRenderer.invoke('check-out');
+        if (!activityResult.success) {
+          console.warn('Failed to log check-out activity:', activityResult.error);
+        }
+      } catch (error) {
+        console.warn('Error logging check-out activity:', error);
+      }
 
       // Reset state
       isCheckedIn = false;
@@ -287,12 +336,12 @@ async function startScreenRecording() {
         const arrayBuffer = await blob.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
-        // Use the correct IPC channel name that exists in main_simplified.js
+        // Save the recording to the database
         const result = await ipcRenderer.invoke('save-recording', buffer, filename);
 
         if (result.success) {
-          console.log(`Work session recording saved to: ${result.filePath}`);
-          statusText.textContent = `Work session saved: ${result.filePath}`;
+          console.log(`Work session recording saved to database with ID: ${result.id}`);
+          statusText.textContent = `Work session saved to database (ID: ${result.id})`;
         } else {
           console.error(`Error saving work session recording: ${result.error}`);
           statusText.textContent = `Error saving work session: ${result.error}`;
