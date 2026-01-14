@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 
 let mainWindow;
@@ -44,6 +44,54 @@ function createWindow() {
   // Open DevTools for debugging screen capture
   mainWindow.webContents.openDevTools({ mode: 'detach' });
 }
+
+// System tray functionality
+let tray = null;
+
+app.whenReady().then(() => {
+  createWindow();
+
+  // Create tray icon
+  const iconPath = path.join(__dirname, 'assets/Powersoft_logo__1_.png');
+  const iconImage = nativeImage.createFromPath(iconPath);
+
+  // If icon doesn't exist, use a default icon
+  tray = new Tray(iconImage.isEmpty() ? null : iconImage);
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show App',
+      click: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      }
+    },
+    {
+      label: 'Quit',
+      click: () => {
+        app.quit();
+      }
+    }
+  ]);
+
+  tray.setContextMenu(contextMenu);
+  tray.setToolTip('Remote Work Tracker');
+  tray.setTitle('Remote Work Tracker');
+
+  // Show window when tray icon is clicked
+  tray.on('click', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isVisible()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }
+  });
+});
 
 // Handle getting available sources for screen capture
 ipcMain.handle('get-sources', async () => {
@@ -139,11 +187,10 @@ ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
   }
 });
 
-app.whenReady().then(createWindow);
-
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    app.quit();
+    // Don't quit the app when window is closed, just hide it
+    // The app will continue running in the system tray
   }
 });
 
