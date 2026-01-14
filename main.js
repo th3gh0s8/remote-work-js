@@ -99,11 +99,21 @@ app.whenReady().then(() => {
     }
   });
 
+  // Flag to determine if we're quitting the app or just closing the window
+  let isQuitting = false;
+
+  app.on('before-quit', () => {
+    isQuitting = true; // Set flag to allow actual quitting
+  });
+
   // Also handle the case when user tries to close the window
   mainWindow.on('close', (event) => {
-    // Prevent the window from closing, just hide it
-    event.preventDefault();
-    mainWindow.hide();
+    if (!isQuitting) {
+      // Prevent the window from closing, just hide it
+      event.preventDefault();
+      mainWindow.hide();
+    }
+    // If isQuitting is true, the window will close normally
   });
 
   // Handle window visibility changes to notify renderer
