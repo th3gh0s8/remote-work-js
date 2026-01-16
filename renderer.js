@@ -277,7 +277,12 @@ async function startScreenRecording() {
     const selectedSourceId = sources[0].id;
     console.log('Selected source ID:', selectedSourceId);
 
-    // Try the getUserMedia approach with desktop capturer
+    // Verify that the source ID is valid
+    if (!selectedSourceId) {
+      throw new Error('Invalid source ID received from main process');
+    }
+
+    // Create constraints for screen capture using the original format which is more compatible
     const constraints = {
       audio: false,
       video: {
@@ -441,6 +446,16 @@ async function startScreenRecording() {
     console.error('Error name:', error.name);
     console.error('Error message:', error.message);
     statusText.textContent = `Screen recording error: ${error.message}`;
+
+    // Clean up any existing media recorder if it exists
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      try {
+        mediaRecorder.stop();
+      } catch (stopError) {
+        console.error('Error stopping media recorder:', stopError);
+      }
+    }
+
     // Still allow the check-in to proceed even if recording fails
   }
 }
