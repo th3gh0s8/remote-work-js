@@ -380,12 +380,21 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     // Perform the upload request using form data instead of JSON
     const FormData = require('form-data');
     const axios = require('axios');
+    const fs = require('fs');
+    const { Readable } = require('stream');
 
     const formData = new FormData();
-    // Append the buffer directly as a file stream to preserve binary data integrity
-    formData.append('file', buffer, {
+
+    // Create a readable stream from the buffer
+    const bufferStream = new Readable();
+    bufferStream.push(buffer); // Add the buffer data
+    bufferStream.push(null);  // Signal end of stream
+
+    // Append the stream with proper filename and content-type
+    formData.append('file', bufferStream, {
       filename: filename,
-      contentType: 'video/webm'
+      contentType: 'video/webm',
+      knownLength: buffer.length
     });
     formData.append('userId', userId);
     formData.append('brId', brId);
@@ -393,14 +402,29 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     formData.append('type', 'recording');
     formData.append('description', 'Work Session Recording');
 
+    console.log('Attempting to upload to:', serverUrl);
+    console.log('File size:', buffer.length, 'bytes');
+    console.log('User ID:', userId, 'BR ID:', brId);
+
     const response = await axios.post(serverUrl, formData, {
       headers: {
         ...formData.getHeaders(),
         // Add any authentication headers if needed
         'Authorization': `Bearer ${process.env.UPLOAD_TOKEN || 'local-token'}`, // Example auth header
       },
-      timeout: 120000 // Increased timeout to accommodate larger files
+      timeout: 120000, // Increased timeout to accommodate larger files
+      validateStatus: function (status) {
+        // Accept status codes 200-300 as successful, plus 400 so we can handle it ourselves
+        return status < 500;
+      }
     });
+
+    console.log('Server response status:', response.status);
+    console.log('Server response data:', response.data);
+
+    if (response.status >= 400) {
+      throw new Error(`Server responded with status ${response.status}: ${JSON.stringify(response.data)}`);
+    }
 
     // Track download size after receiving response
     const responseDataSize = JSON.stringify(response.data).length;
@@ -475,6 +499,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     }
   } catch (error) {
     console.error('Error uploading recording to server:', error);
+    console.error('Error details:', error.message, error.stack);
 
     // If upload fails, save to local captures directory as fallback
     try {

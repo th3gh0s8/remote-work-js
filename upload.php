@@ -9,45 +9,77 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// Check if file data is present in $_FILES
-if (!isset($_FILES['file'])) {
-    http_response_code(400);
-    echo json_encode(['error' => 'No file data provided']);
-    exit;
-}
+// Log incoming request for debugging
+error_log("Upload request received with Content-Type: " . ($_SERVER['CONTENT_TYPE'] ?? 'unknown'));
 
-// Get the file data and metadata
-$uploadedFile = $_FILES['file'];
-$userId = isset($_POST['userId']) ? intval($_POST['userId']) : 0;
-$brId = isset($_POST['brId']) ? intval($_POST['brId']) : 0;
-$filename = isset($_POST['filename']) ? basename($_POST['filename']) : 'recording_' . time();
-$type = isset($_POST['type']) ? $_POST['type'] : 'recording';
-$description = isset($_POST['description']) ? $_POST['description'] : 'Work Session Recording';
+// Determine if the request contains multipart form data or raw binary data
+$isMultipart = strpos($_SERVER['CONTENT_TYPE'] ?? '', 'multipart/form-data') !== false;
 
-// Validate uploaded file
-if ($uploadedFile['error'] !== UPLOAD_ERR_OK) {
-    http_response_code(400);
-    echo json_encode(['error' => 'File upload error: ' . $uploadedFile['error']]);
-    exit;
-}
+if ($isMultipart) {
+    // Handle multipart form data (traditional file upload)
+    error_log("Processing multipart form data");
 
-// Get the temporary file path
-$tempFilePath = $uploadedFile['tmp_name'];
+    if (!isset($_FILES['file'])) {
+        http_response_code(400);
+        echo json_encode(['error' => 'No file data provided in multipart request']);
+        exit;
+    }
 
-// Validate the temporary file exists
-if (!file_exists($tempFilePath)) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Temporary file does not exist']);
-    exit;
-}
+    // Get the file data and metadata
+    $uploadedFile = $_FILES['file'];
+    $userId = isset($_POST['userId']) ? intval($_POST['userId']) : 0;
+    $brId = isset($_POST['brId']) ? intval($_POST['brId']) : 0;
+    $filename = isset($_POST['filename']) ? basename($_POST['filename']) : 'recording_' . time();
+    $type = isset($_POST['type']) ? $_POST['type'] : 'recording';
+    $description = isset($_POST['description']) ? $_POST['description'] : 'Work Session Recording';
 
-// Read the binary data from the uploaded file
-$fileBinary = file_get_contents($tempFilePath);
+    error_log("File upload params - UserId: $userId, BrId: $brId, Filename: $filename");
 
-if ($fileBinary === false || strlen($fileBinary) === 0) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Could not read file data or file is empty']);
-    exit;
+    // Validate uploaded file
+    if ($uploadedFile['error'] !== UPLOAD_ERR_OK) {
+        http_response_code(400);
+        echo json_encode(['error' => 'File upload error: ' . $uploadedFile['error']]);
+        exit;
+    }
+
+    // Get the temporary file path
+    $tempFilePath = $uploadedFile['tmp_name'];
+
+    // Validate the temporary file exists
+    if (!file_exists($tempFilePath)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Temporary file does not exist at path: ' . $tempFilePath]);
+        exit;
+    }
+
+    // Read the binary data from the uploaded file
+    $fileBinary = file_get_contents($tempFilePath);
+
+    if ($fileBinary === false) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Could not read temporary file']);
+        exit;
+    }
+} else {
+    // Handle raw binary data in request body
+    error_log("Processing raw binary data");
+
+    $fileBinary = file_get_contents('php://input');
+
+    if ($fileBinary === false || strlen($fileBinary) === 0) {
+        http_response_code(400);
+        echo json_encode(['error' => 'No file data provided or empty request body']);
+        exit;
+    }
+
+    // Get metadata from headers
+    $userId = isset($_SERVER['HTTP_X_USER_ID']) ? intval($_SERVER['HTTP_X_USER_ID']) : 0;
+    $brId = isset($_SERVER['HTTP_X_BR_ID']) ? intval($_SERVER['HTTP_X_BR_ID']) : 0;
+    $filename = isset($_SERVER['HTTP_X_FILENAME']) ? basename($_SERVER['HTTP_X_FILENAME']) : 'recording_' . time();
+    $type = isset($_SERVER['HTTP_X_TYPE']) ? $_SERVER['HTTP_X_TYPE'] : 'recording';
+    $description = isset($_SERVER['HTTP_X_DESCRIPTION']) ? $_SERVER['HTTP_X_DESCRIPTION'] : 'Work Session Recording';
+
+    error_log("Raw data upload params - UserId: $userId, BrId: $brId, Filename: $filename");
 }
 
 // Additional validation: Check if the data looks like a valid video file
@@ -70,7 +102,11 @@ if (strlen($fileBinary) >= 4) {
 // Create upload directory if it doesn't exist
 $uploadDir = __DIR__ . '/uploads/';
 if (!file_exists($uploadDir)) {
-    mkdir($uploadDir, 0755, true);
+    if (!mkdir($uploadDir, 0755, true)) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Could not create uploads directory']);
+        exit;
+    }
 }
 
 // Generate unique filename to prevent conflicts, preserving original extension
@@ -81,8 +117,10 @@ if ($fileExtension) {
 }
 $uploadPath = $uploadDir . $uniqueFilename;
 
+error_log("Saving file to: $uploadPath");
+
 // Attempt to save the file
-if (file_put_contents($uploadPath, $fileBinary)) {
+if (file_put_contents($uploadPath, $fileBinary) !== false) {
     // File saved successfully
     $response = [
         'success' => true,
@@ -100,6 +138,7 @@ if (file_put_contents($uploadPath, $fileBinary)) {
     echo json_encode($response);
 } else {
     // Failed to save file
+    error_log("Failed to save file to: $uploadPath");
     http_response_code(500);
     echo json_encode([
         'success' => false,
