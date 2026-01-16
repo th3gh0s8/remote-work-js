@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, n
 const path = require('path');
 const si = require('systeminformation');
 const DatabaseConnection = require('./db_connection');
+const SessionManager = require('./session_manager');
 
 // Variables to track network usage
 let totalBytesDownloaded = 0;
@@ -13,6 +14,14 @@ let networkUsageInterval = null;
 let mainWindow;
 let loginWindow = null;
 const db = new DatabaseConnection();
+let sessionManager; /**
+ * Creates the main application BrowserWindow configured for screen capture and loads the renderer.
+ *
+ * Sets up a BrowserWindow with Node integration and permissive media settings, configures session
+ * handlers to allow display media and desktop capture, auto-selects a desktop source when requested,
+ * loads index.html into the window, opens DevTools for debugging, and clears the global window
+ * reference when the window is closed.
+ */
 
 function createWindow() {
   const { screen } = require('electron');
@@ -74,7 +83,12 @@ function createWindow() {
 // System tray functionality
 let tray = null;
 
-// Create login window
+/**
+ * Create and show the login window used for user authentication.
+ *
+ * The window is configured for the application's login UI, loads "login.html",
+ * and clears the module-level `loginWindow` reference when closed.
+ */
 function createLoginWindow() {
   loginWindow = new BrowserWindow({
     width: 450,
@@ -99,6 +113,9 @@ function createLoginWindow() {
 }
 
 app.whenReady().then(async () => {
+  // Initialize session manager after app is ready
+  sessionManager = new SessionManager();
+
   // Connect to database
   const dbConnected = await db.connect();
   if (!dbConnected) {
@@ -106,8 +123,130 @@ app.whenReady().then(async () => {
     // You might want to show an error message to the user here
   }
 
-  // Show login window first
-  createLoginWindow();
+  // Check if there's a valid session stored
+  const savedSession = await sessionManager.loadSession();
+
+  if (savedSession) {
+    // If there's a valid session, skip login and go directly to main window
+    console.log('Valid session found, auto-login...');
+    loggedInUser = savedSession;
+
+    // Log login activity
+    await logUserActivity('login');
+
+    // Create main application window
+    createWindow();
+
+    // Pass user information to the renderer
+    mainWindow.webContents.once('dom-ready', () => {
+      mainWindow.webContents.send('user-info', savedSession);
+
+      // Start network monitoring after DOM is ready
+      startNetworkMonitoring();
+    });
+
+    // Store mainWindow globally so database operations can send network usage updates
+    global.mainWindow = mainWindow;
+
+    // Create tray icon
+    const iconPath = path.join(__dirname, 'assets/logo.jpg');
+    const iconImage = nativeImage.createFromPath(iconPath);
+
+    // If icon doesn't exist, use a default icon
+    tray = new Tray(iconImage.isEmpty() ? null : iconImage);
+
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Show App',
+        click: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Logout',
+        click: async () => {
+          // Clear the saved session
+          await sessionManager.clearSession();
+
+          // Log logout activity
+          if (loggedInUser) {
+            await logUserActivity('logout');
+          }
+
+          // Close main window and show login window
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.close();
+          }
+
+          createLoginWindow();
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit',
+        click: () => {
+          // Force quit the application
+          app.quit();
+        }
+      }
+    ]);
+
+    tray.setContextMenu(contextMenu);
+    tray.setToolTip('Remote Work Tracker');
+    tray.setTitle('Remote Work Tracker');
+
+    // Show window when tray icon is clicked
+    tray.on('click', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isVisible()) {
+          mainWindow.hide();
+        } else {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      }
+    });
+
+    // Flag to determine if we're quitting the app or just closing the window
+    let isQuitting = false;
+
+    app.on('before-quit', () => {
+      isQuitting = true; // Set flag to allow actual quitting
+    });
+
+    // Also handle the case when user tries to close the window
+    mainWindow.on('close', (event) => {
+      if (!isQuitting) {
+        // Prevent the window from closing, just hide it
+        event.preventDefault();
+        mainWindow.hide();
+      }
+      // If isQuitting is true, the window will close normally
+    });
+
+    // Handle app quit to log logout activity
+    app.on('quit', async () => {
+      if (loggedInUser) {
+        await logUserActivity('logout');
+      }
+    });
+
+    // Handle window visibility changes to notify renderer
+    mainWindow.on('show', () => {
+      mainWindow.webContents.send('window-shown');
+    });
+
+    mainWindow.on('hide', () => {
+      mainWindow.webContents.send('window-hidden');
+    });
+  } else {
+    // No valid session, show login window first
+    createLoginWindow();
+  }
 });
 
 // Handle login
@@ -124,7 +263,16 @@ ipcMain.handle('login', async (event, repid, mobile) => {
 // Store logged-in user information
 let loggedInUser = null;
 
-// Function to log user activity to the database
+/**
+ * Record a user activity in the database and update network usage estimates.
+ *
+ * Inserts a user activity row (salesrepTb, activity_type, duration, timestamp) and increments global network usage counters based on estimated query/response sizes.
+ * @param {string} activityType - The activity identifier (e.g., "login", "check-in", "break-start", "break-end", "check-out").
+ * @param {number} [duration=0] - Optional duration in seconds associated with the activity (use 0 when not applicable).
+ * @returns {{ success: true, id: number } | { success: false, error: string } | undefined}
+ *   If the operation runs: an object with `success: true` and the inserted row `id`, or `success: false` with an `error` message on failure.
+ *   Returns `undefined` immediately if there is no active database connection or no logged-in user.
+ */
 async function logUserActivity(activityType, duration = 0) {
   if (!db.connection || !loggedInUser) {
     console.error('Database not connected or user not logged in');
@@ -160,10 +308,38 @@ async function logUserActivity(activityType, duration = 0) {
   }
 }
 
+// Handle logout request from renderer - moved outside login-success to prevent duplicate registration
+ipcMain.handle('logout-request', async (event) => {
+  try {
+    // Clear the saved session
+    await sessionManager.clearSession();
+
+    // Log logout activity
+    if (loggedInUser) {
+      await logUserActivity('logout');
+    }
+
+    // Close main window and show login window
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.close();
+    }
+
+    createLoginWindow();
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error during logout:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Handle successful login
 ipcMain.handle('login-success', async (event, user) => {
   // Store the logged-in user
   loggedInUser = user;
+
+  // Save session for persistent login
+  await sessionManager.saveSession(user);
 
   // Log login activity
   await logUserActivity('login');
@@ -202,6 +378,26 @@ ipcMain.handle('login-success', async (event, user) => {
           mainWindow.show();
           mainWindow.focus();
         }
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Logout',
+      click: async () => {
+        // Clear the saved session
+        await sessionManager.clearSession();
+
+        // Log logout activity
+        if (loggedInUser) {
+          await logUserActivity('logout');
+        }
+
+        // Close main window and show login window
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.close();
+        }
+
+        createLoginWindow();
       }
     },
     { type: 'separator' },
@@ -247,11 +443,22 @@ ipcMain.handle('login-success', async (event, user) => {
     // If isQuitting is true, the window will close normally
   });
 
-  // Handle app quit to log logout activity
+// Handle app quit to log logout activity
   app.on('quit', async () => {
     if (loggedInUser) {
       await logUserActivity('logout');
     }
+  });
+
+  // Handle window close to preserve session unless explicitly logging out
+  app.on('window-all-closed', () => {
+    // Keep the app running in background on all platforms, not just macOS
+    // This allows the app to stay active in the system tray
+    if (process.platform === 'darwin') {
+      return;
+    }
+    // Don't quit the app when window is closed - keep it running in background
+    // This preserves the session for next startup
   });
 
   // Handle window visibility changes to notify renderer

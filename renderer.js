@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const checkInBtn = document.getElementById('check-in-btn');
   const breakBtn = document.getElementById('break-btn');
   const checkOutBtn = document.getElementById('check-out-btn');
+  const logoutBtn = document.getElementById('logout-btn');
   const statusText = document.getElementById('screenshot-status');
   const activityBadge = document.getElementById('activity-badge');
   const downloadSpeedElement = document.getElementById('download-speed');
@@ -212,7 +213,31 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-// Timer display function
+  // Logout button functionality
+  logoutBtn.addEventListener('click', async () => {
+    // Confirm logout with user
+    const confirmed = confirm('Are you sure you want to logout? Your current session will end.');
+    if (confirmed) {
+      try {
+        // Send logout request to main process
+        await ipcRenderer.invoke('logout-request');
+        console.log('Logout initiated');
+      } catch (error) {
+        console.error('Error initiating logout:', error);
+        statusText.textContent = `Logout error: ${error.message}`;
+      }
+    }
+  });
+
+/**
+ * Update the on-screen status with the current worked time and break state.
+ *
+ * If the user is checked in, sets the global `statusText.innerHTML` to show either
+ * the check-in time and accumulated worked time or the break start time and worked time
+ * up to the break. Does nothing when not checked in.
+ *
+ * Relies on global state: `startTime`, `isCheckedIn`, `isOnBreak`, `breakStartTime`, and `totalBreakTime`.
+ */
 function updateTimerDisplay() {
   if (!startTime || !isCheckedIn) return;
 

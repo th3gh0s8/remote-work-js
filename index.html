@@ -91,6 +91,38 @@
         width: auto;
       }
 
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+      }
+
+      .logout-btn {
+        background: linear-gradient(135deg, #e74c3c, #c0392b);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 8px 16px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 2px 6px rgba(231, 76, 60, 0.3);
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .logout-btn:hover {
+        background: linear-gradient(135deg, #c0392b, #a93226);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(231, 76, 60, 0.4);
+      }
+
+      .logout-btn:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 4px rgba(231, 76, 60, 0.3);
+      }
+
       .main-content {
         flex: 1;
         padding: 20px;
@@ -587,13 +619,16 @@
           <h1 class="title">Remote Worker</h1>
           <div id="activity-badge" class="activity-indicator" title="Activity Status"></div>
         </div>
-        <a href="https://powersoftt.com/" target="_blank">
-          <img
-            src="./assets/Powersoft_logo__1_.png"
-            class="logo"
-            alt="Powersoft logo"
-          />
-        </a>
+        <div class="header-actions">
+          <button id="logout-btn" class="logout-btn">Logout</button>
+          <a href="https://powersoftt.com/" target="_blank">
+            <img
+              src="./assets/Powersoft_logo__1_.png"
+              class="logo"
+              alt="Powersoft logo"
+            />
+          </a>
+        </div>
       </header>
 
       <div class="main-content">
