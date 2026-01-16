@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const checkInBtn = document.getElementById('check-in-btn');
   const breakBtn = document.getElementById('break-btn');
   const checkOutBtn = document.getElementById('check-out-btn');
+  const logoutBtn = document.getElementById('logout-btn');
   const statusText = document.getElementById('screenshot-status');
   const activityBadge = document.getElementById('activity-badge');
   const downloadSpeedElement = document.getElementById('download-speed');
@@ -209,6 +210,22 @@ document.addEventListener('DOMContentLoaded', function() {
       breakBtn.textContent = 'Break Time';
 
       if (activityBadge) activityBadge.classList.remove('active');
+    }
+  });
+
+  // Logout button functionality
+  logoutBtn.addEventListener('click', async () => {
+    // Confirm logout with user
+    const confirmed = confirm('Are you sure you want to logout? Your current session will end.');
+    if (confirmed) {
+      try {
+        // Send logout request to main process
+        await ipcRenderer.invoke('logout-request');
+        console.log('Logout initiated');
+      } catch (error) {
+        console.error('Error initiating logout:', error);
+        statusText.textContent = `Logout error: ${error.message}`;
+      }
     }
   });
 
