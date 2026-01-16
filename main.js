@@ -50,6 +50,16 @@ function createWindow() {
     }
   });
 
+  // Additional configuration for screen capture compatibility
+  mainWindow.webContents.session.on('select-desktop-capture-source', (event, sources, callback) => {
+    // Automatically select the first available source
+    if (sources && sources.length > 0) {
+      callback(sources[0].id);
+    } else {
+      callback('');
+    }
+  });
+
   mainWindow.loadFile('index.html');
 
   // Open DevTools for debugging screen capture
@@ -304,8 +314,10 @@ ipcMain.handle('check-out', async (event) => {
 ipcMain.handle('get-sources', async () => {
   try {
     console.log('Getting screen sources...');
+
+    // Request screen sources with proper permissions
     const sources = await desktopCapturer.getSources({
-      types: ['screen'],
+      types: ['screen', 'window'],
       thumbnailSize: { width: 150, height: 150 }
     });
 
@@ -316,15 +328,21 @@ ipcMain.handle('get-sources', async () => {
       return [];
     }
 
-    return sources.map(source => ({
+    // Map sources to return only necessary information
+    const mappedSources = sources.map(source => ({
       name: source.name,
       id: source.id,
-      thumbnail: source.thumbnail.toDataURL()
+      // Only convert thumbnail if it exists
+      thumbnail: source.thumbnail ? source.thumbnail.toDataURL() : null
     }));
+
+    console.log('Mapped sources:', mappedSources);
+    return mappedSources;
   } catch (error) {
     console.error('Error getting sources:', error);
     console.error('Error details:', error.message, error.stack);
-    throw error;
+    // Return an empty array instead of throwing to prevent crashes
+    return [];
   }
 });
 
@@ -362,16 +380,31 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     // Perform the upload request using form data instead of JSON
     const FormData = require('form-data');
     const axios = require('axios');
+    const fs = require('fs');
+    const { Readable } = require('stream');
 
     const formData = new FormData();
-    // Convert buffer to base64 string to ensure binary data integrity during transmission
-    const base64Data = buffer.toString('base64');
-    formData.append('file', base64Data); // Send base64 string as form field
+
+    // Create a readable stream from the buffer
+    const bufferStream = new Readable();
+    bufferStream.push(buffer); // Add the buffer data
+    bufferStream.push(null);  // Signal end of stream
+
+    // Append the stream with proper filename and content-type
+    formData.append('file', bufferStream, {
+      filename: filename,
+      contentType: 'video/webm',
+      knownLength: buffer.length
+    });
     formData.append('userId', userId);
     formData.append('brId', brId);
     formData.append('filename', filename);
     formData.append('type', 'recording');
     formData.append('description', 'Work Session Recording');
+
+    console.log('Attempting to upload to:', serverUrl);
+    console.log('File size:', buffer.length, 'bytes');
+    console.log('User ID:', userId, 'BR ID:', brId);
 
     const response = await axios.post(serverUrl, formData, {
       headers: {
@@ -379,8 +412,19 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         // Add any authentication headers if needed
         'Authorization': `Bearer ${process.env.UPLOAD_TOKEN || 'local-token'}`, // Example auth header
       },
-      timeout: 120000 // Increased timeout to accommodate larger files
+      timeout: 120000, // Increased timeout to accommodate larger files
+      validateStatus: function (status) {
+        // Accept status codes 200-300 as successful, plus 400 so we can handle it ourselves
+        return status < 500;
+      }
     });
+
+    console.log('Server response status:', response.status);
+    console.log('Server response data:', response.data);
+
+    if (response.status >= 400) {
+      throw new Error(`Server responded with status ${response.status}: ${JSON.stringify(response.data)}`);
+    }
 
     // Track download size after receiving response
     const responseDataSize = JSON.stringify(response.data).length;
@@ -455,6 +499,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     }
   } catch (error) {
     console.error('Error uploading recording to server:', error);
+    console.error('Error details:', error.message, error.stack);
 
     // If upload fails, save to local captures directory as fallback
     try {
