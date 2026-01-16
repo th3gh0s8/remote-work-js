@@ -14,7 +14,14 @@ let networkUsageInterval = null;
 let mainWindow;
 let loginWindow = null;
 const db = new DatabaseConnection();
-let sessionManager; // Initialize after app is ready
+let sessionManager; /**
+ * Creates the main application BrowserWindow configured for screen capture and loads the renderer.
+ *
+ * Sets up a BrowserWindow with Node integration and permissive media settings, configures session
+ * handlers to allow display media and desktop capture, auto-selects a desktop source when requested,
+ * loads index.html into the window, opens DevTools for debugging, and clears the global window
+ * reference when the window is closed.
+ */
 
 function createWindow() {
   const { screen } = require('electron');
@@ -76,7 +83,12 @@ function createWindow() {
 // System tray functionality
 let tray = null;
 
-// Create login window
+/**
+ * Create and show the login window used for user authentication.
+ *
+ * The window is configured for the application's login UI, loads "login.html",
+ * and clears the module-level `loginWindow` reference when closed.
+ */
 function createLoginWindow() {
   loginWindow = new BrowserWindow({
     width: 450,
@@ -251,7 +263,16 @@ ipcMain.handle('login', async (event, repid, mobile) => {
 // Store logged-in user information
 let loggedInUser = null;
 
-// Function to log user activity to the database
+/**
+ * Record a user activity in the database and update network usage estimates.
+ *
+ * Inserts a user activity row (salesrepTb, activity_type, duration, timestamp) and increments global network usage counters based on estimated query/response sizes.
+ * @param {string} activityType - The activity identifier (e.g., "login", "check-in", "break-start", "break-end", "check-out").
+ * @param {number} [duration=0] - Optional duration in seconds associated with the activity (use 0 when not applicable).
+ * @returns {{ success: true, id: number } | { success: false, error: string } | undefined}
+ *   If the operation runs: an object with `success: true` and the inserted row `id`, or `success: false` with an `error` message on failure.
+ *   Returns `undefined` immediately if there is no active database connection or no logged-in user.
+ */
 async function logUserActivity(activityType, duration = 0) {
   if (!db.connection || !loggedInUser) {
     console.error('Database not connected or user not logged in');

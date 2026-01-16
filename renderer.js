@@ -229,7 +229,15 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-// Timer display function
+/**
+ * Update the on-screen status with the current worked time and break state.
+ *
+ * If the user is checked in, sets the global `statusText.innerHTML` to show either
+ * the check-in time and accumulated worked time or the break start time and worked time
+ * up to the break. Does nothing when not checked in.
+ *
+ * Relies on global state: `startTime`, `isCheckedIn`, `isOnBreak`, `breakStartTime`, and `totalBreakTime`.
+ */
 function updateTimerDisplay() {
   if (!startTime || !isCheckedIn) return;
 
