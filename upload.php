@@ -9,43 +9,48 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// Check if file data is present
-if (!isset($_POST['file'])) {
+// Check if file data is present in $_FILES
+if (!isset($_FILES['file'])) {
     http_response_code(400);
     echo json_encode(['error' => 'No file data provided']);
     exit;
 }
 
 // Get the file data and metadata
-$fileData = $_POST['file']; // This is the base64 encoded file
+$uploadedFile = $_FILES['file'];
 $userId = isset($_POST['userId']) ? intval($_POST['userId']) : 0;
 $brId = isset($_POST['brId']) ? intval($_POST['brId']) : 0;
 $filename = isset($_POST['filename']) ? basename($_POST['filename']) : 'recording_' . time();
 $type = isset($_POST['type']) ? $_POST['type'] : 'recording';
 $description = isset($_POST['description']) ? $_POST['description'] : 'Work Session Recording';
 
-// Validate and clean the base64 data
-$fileData = trim($fileData); // Remove any whitespace that might have been added
-
-// Sometimes base64 data might have URL-safe characters converted, fix them
-$fileData = str_replace(['-', '_'], ['+', '/'], $fileData);
-
-// Add padding if needed
-$padding = strlen($fileData) % 4;
-if ($padding !== 0) {
-    $fileData .= str_repeat('=', 4 - $padding);
-}
-
-// Decode the base64 file data
-$fileBinary = base64_decode($fileData);
-
-if ($fileBinary === false || strlen($fileBinary) === 0) {
+// Validate uploaded file
+if ($uploadedFile['error'] !== UPLOAD_ERR_OK) {
     http_response_code(400);
-    echo json_encode(['error' => 'Invalid file data or empty file']);
+    echo json_encode(['error' => 'File upload error: ' . $uploadedFile['error']]);
     exit;
 }
 
-// Additional validation: Check if the decoded data looks like a valid video file
+// Get the temporary file path
+$tempFilePath = $uploadedFile['tmp_name'];
+
+// Validate the temporary file exists
+if (!file_exists($tempFilePath)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Temporary file does not exist']);
+    exit;
+}
+
+// Read the binary data from the uploaded file
+$fileBinary = file_get_contents($tempFilePath);
+
+if ($fileBinary === false || strlen($fileBinary) === 0) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Could not read file data or file is empty']);
+    exit;
+}
+
+// Additional validation: Check if the data looks like a valid video file
 // WebM files typically start with EBML header
 if (strlen($fileBinary) >= 4) {
     $header = substr($fileBinary, 0, 4);
@@ -91,13 +96,13 @@ if (file_put_contents($uploadPath, $fileBinary)) {
         'description' => $description,
         'timestamp' => date('Y-m-d H:i:s')
     ];
-    
+
     echo json_encode($response);
 } else {
     // Failed to save file
     http_response_code(500);
     echo json_encode([
-        'success' => false, 
+        'success' => false,
         'error' => 'Failed to save file',
         'details' => error_get_last()['message'] ?? 'Unknown error'
     ]);

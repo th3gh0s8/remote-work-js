@@ -364,9 +364,11 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     const axios = require('axios');
 
     const formData = new FormData();
-    // Convert buffer to base64 string to ensure binary data integrity during transmission
-    const base64Data = buffer.toString('base64');
-    formData.append('file', base64Data); // Send base64 string as form field
+    // Append the buffer directly as a file stream to preserve binary data integrity
+    formData.append('file', buffer, {
+      filename: filename,
+      contentType: 'video/webm'
+    });
     formData.append('userId', userId);
     formData.append('brId', brId);
     formData.append('filename', filename);
