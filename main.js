@@ -196,8 +196,8 @@ app.whenReady().then(async () => {
     ]);
 
     tray.setContextMenu(contextMenu);
-    tray.setToolTip('Remote Work Tracker');
-    tray.setTitle('Remote Work Tracker');
+    tray.setToolTip('XPloyee');
+    tray.setTitle('XPloyee');
 
     // Show window when tray icon is clicked
     tray.on('click', () => {
@@ -411,8 +411,8 @@ ipcMain.handle('login-success', async (event, user) => {
   ]);
 
   tray.setContextMenu(contextMenu);
-  tray.setToolTip('Remote Work Tracker');
-  tray.setTitle('Remote Work Tracker');
+  tray.setToolTip('XPloyee');
+  tray.setTitle('XPloyee');
 
   // Show window when tray icon is clicked
   tray.on('click', () => {

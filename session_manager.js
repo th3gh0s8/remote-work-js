@@ -5,7 +5,7 @@ const os = require('os');
 class SessionManager {
   constructor() {
     // Create a secure location for session data
-    this.sessionDir = path.join(os.homedir(), '.remote-work-tracker');
+    this.sessionDir = path.join(os.homedir(), '.xploree');
     this.sessionFile = path.join(this.sessionDir, 'session.json');
 
     // Ensure the session directory exists
