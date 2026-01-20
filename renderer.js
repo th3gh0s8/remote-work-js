@@ -12,7 +12,7 @@ let recordedChunks = [];
 let recordingInterval = null;
 let segmentStartTime = null;
 let segmentCounter = 1;
-const SEGMENT_DURATION = 2 * 60 * 1000; // 2 minutes in milliseconds
+const SEGMENT_DURATION = 60 * 1000; // 1 minute in milliseconds
 
 // Store user information
 let currentUser = null;
