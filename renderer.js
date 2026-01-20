@@ -567,8 +567,16 @@ async function startScreenRecording() {
     segmentStartTime = Date.now();
     segmentCounter = 1;
 
+    // Variable to hold the timeout ID for cancelling when needed
+    let segmentTimeoutId = null;
+
     // Function to start a new recording segment
     function startNewSegment() {
+      // Clear any existing timeout to prevent conflicts
+      if (segmentTimeoutId) {
+        clearTimeout(segmentTimeoutId);
+      }
+
       // Create a new MediaRecorder for this segment
       mediaRecorder = new MediaRecorder(stream, options);
       console.log('MediaRecorder created with options:', options);
@@ -587,6 +595,12 @@ async function startScreenRecording() {
 
       mediaRecorder.onstop = async () => {
         console.log('MediaRecorder stopped. Processing segment:', recordedChunks.length);
+
+        // Clear the timeout since recording has stopped
+        if (segmentTimeoutId) {
+          clearTimeout(segmentTimeoutId);
+          segmentTimeoutId = null;
+        }
 
         if (recordedChunks.length > 0) {
           // Create a blob from recorded chunks
@@ -632,18 +646,43 @@ async function startScreenRecording() {
         console.log('Recording started');
         console.log('MediaRecorder state:', mediaRecorder.state);
         statusText.textContent = 'Recording in progress...';
+
+        // Set the timeout to stop the recording after the specified duration
+        segmentTimeoutId = setTimeout(() => {
+          if (mediaRecorder && mediaRecorder.state === 'recording' && !isOnBreak) {
+            mediaRecorder.stop();
+          }
+        }, SEGMENT_DURATION);
       };
 
       mediaRecorder.onpause = () => {
         console.log('Recording paused');
         console.log('MediaRecorder state:', mediaRecorder.state);
         statusText.textContent = 'Recording paused...';
+
+        // Clear the timeout when recording is paused
+        if (segmentTimeoutId) {
+          clearTimeout(segmentTimeoutId);
+          segmentTimeoutId = null;
+        }
       };
 
       mediaRecorder.onresume = () => {
         console.log('Recording resumed');
         console.log('MediaRecorder state:', mediaRecorder.state);
         statusText.textContent = 'Recording in progress...';
+
+        // When recording resumes, start a new timeout for the remaining segment time
+        // or reset to full segment duration
+        if (segmentTimeoutId) {
+          clearTimeout(segmentTimeoutId);
+        }
+
+        segmentTimeoutId = setTimeout(() => {
+          if (mediaRecorder && mediaRecorder.state === 'recording' && !isOnBreak) {
+            mediaRecorder.stop();
+          }
+        }, SEGMENT_DURATION);
       };
 
       mediaRecorder.onerror = (event) => {
@@ -655,13 +694,6 @@ async function startScreenRecording() {
       mediaRecorder.start();
       console.log(`MediaRecorder started for segment ${segmentCounter}`);
       console.log('MediaRecorder state after start:', mediaRecorder.state);
-
-      // Stop the recording after the specified duration
-      setTimeout(() => {
-        if (mediaRecorder && mediaRecorder.state === 'recording') {
-          mediaRecorder.stop();
-        }
-      }, SEGMENT_DURATION);
     }
 
     // Start the first segment
