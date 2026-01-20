@@ -824,11 +824,6 @@ async function getNetworkUsage() {
     const downloadSpeed = Math.max(0, (currentTotalRxBytes - (global.previousRxBytes || 0)) / timeDiffSafe / 1024);
     const uploadSpeed = Math.max(0, (currentTotalTxBytes - (global.previousTxBytes || 0)) / timeDiffSafe / 1024);
 
-    // Update global tracking variables
-    global.previousRxBytes = currentTotalRxBytes;
-    global.previousTxBytes = currentTotalTxBytes;
-    global.lastNetworkCheckTime = now;
-
     // Calculate the difference since last check
     const rxDifference = currentTotalRxBytes - (global.previousRxBytes || 0);
     const txDifference = currentTotalTxBytes - (global.previousTxBytes || 0);
@@ -840,6 +835,11 @@ async function getNetworkUsage() {
     if (txDifference > 0) {
       totalBytesUploaded += txDifference;
     }
+
+    // Update global tracking variables
+    global.previousRxBytes = currentTotalRxBytes;
+    global.previousTxBytes = currentTotalTxBytes;
+    global.lastNetworkCheckTime = now;
 
     return {
       totalDownloaded: totalBytesDownloaded,
