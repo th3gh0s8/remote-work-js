@@ -10,6 +10,9 @@ let totalBreakTime = 0;
 let mediaRecorder = null;
 let recordedChunks = [];
 let recordingInterval = null;
+let segmentStartTime = null;
+let segmentCounter = 1;
+const SEGMENT_DURATION = 20 * 1000; // 20 seconds in milliseconds
 
 // Store user information
 let currentUser = null;
@@ -341,130 +344,139 @@ async function startScreenRecording() {
     // Create MediaRecorder with optimized options for better compatibility
     let options = {
       mimeType: 'video/webm;codecs=vp9',
-      videoBitsPerSecond: 5000000, // 5 Mbps for better quality/compression
-      audioBitsPerSecond: 128000   // 128 kbps for audio
+      videoBitsPerSecond: 2000000, // Reduced bitrate to create smaller files
+      audioBitsPerSecond: 64000   // Reduced audio bitrate
     };
     if (!MediaRecorder.isTypeSupported(options.mimeType)) {
       console.warn('VP9 codec not supported, trying VP8');
       options = {
         mimeType: 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 5000000,
-        audioBitsPerSecond: 128000
+        videoBitsPerSecond: 2000000,
+        audioBitsPerSecond: 64000
       };
       if (!MediaRecorder.isTypeSupported(options.mimeType)) {
         console.warn('VP8 codec not supported, using default webm');
         options = {
           mimeType: 'video/webm',
-          videoBitsPerSecond: 5000000,
-          audioBitsPerSecond: 128000
+          videoBitsPerSecond: 2000000,
+          audioBitsPerSecond: 64000
         };
         if (!MediaRecorder.isTypeSupported(options.mimeType)) {
           console.warn('WebM not supported, using default with bitrate settings');
           options = {
-            videoBitsPerSecond: 5000000,
-            audioBitsPerSecond: 128000
+            videoBitsPerSecond: 2000000,
+            audioBitsPerSecond: 64000
           };
         }
       }
     }
 
-    mediaRecorder = new MediaRecorder(stream, options);
-    console.log('MediaRecorder created with options:', options);
-    console.log('MediaRecorder state:', mediaRecorder.state);
+    // Initialize segment information
+    segmentStartTime = Date.now();
+    segmentCounter = 1;
 
-    // Initialize recorded chunks array
-    recordedChunks = [];
+    // Function to start a new recording segment
+    function startNewSegment() {
+      // Create a new MediaRecorder for this segment
+      mediaRecorder = new MediaRecorder(stream, options);
+      console.log('MediaRecorder created with options:', options);
+      console.log('MediaRecorder state:', mediaRecorder.state);
 
-    mediaRecorder.ondataavailable = event => {
-      console.log('Data available from MediaRecorder:', event.data.size, 'bytes');
-      if (event.data && event.data.size > 0) {
-        recordedChunks.push(event.data);
-        console.log(`Added chunk, total chunks: ${recordedChunks.length}, chunk size: ${event.data.size} bytes`);
-      }
-    };
+      // Initialize recorded chunks array for this segment
+      recordedChunks = [];
 
-    mediaRecorder.onstop = async () => {
-      console.log('MediaRecorder stopped. Processing chunks:', recordedChunks.length);
-      if (recordedChunks.length === 0) {
-        console.warn('No recorded chunks to save');
-        statusText.textContent = 'Warning: No recording data captured';
-        return;
-      }
-
-      // Create a blob from recorded chunks (using webm format and saving as webm)
-      const blob = new Blob(recordedChunks, { type: 'video/webm' });
-      console.log(`Created blob with size: ${blob.size} bytes`);
-
-      // Wait a bit to ensure the blob is properly finalized
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Generate filename with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `work-session-${timestamp}.webm`;
-
-      try {
-        // Convert blob to buffer
-        const arrayBuffer = await blob.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-
-        // Save the recording to the database
-        const result = await ipcRenderer.invoke('save-recording', buffer, filename);
-
-        if (result.success) {
-          console.log(`Work session recording saved to database with ID: ${result.id}`);
-          statusText.textContent = `Work session saved to database (ID: ${result.id})`;
-        } else {
-          console.error(`Error saving work session recording: ${result.error}`);
-          statusText.textContent = `Error saving work session: ${result.error}`;
+      mediaRecorder.ondataavailable = event => {
+        console.log('Data available from MediaRecorder:', event.data.size, 'bytes');
+        if (event.data && event.data.size > 0) {
+          recordedChunks.push(event.data);
+          console.log(`Added chunk, total chunks: ${recordedChunks.length}, chunk size: ${event.data.size} bytes`);
         }
-      } catch (saveError) {
-        console.error('Error converting blob to buffer or saving:', saveError);
-        statusText.textContent = `Error saving recording: ${saveError.message}`;
-      }
+      };
 
-      // Clean up the stream
-      stream.getTracks().forEach(track => {
-        track.stop();
-        console.log('Stopped track:', track.kind);
-      });
-    };
+      mediaRecorder.onstop = async () => {
+        console.log('MediaRecorder stopped. Processing segment:', recordedChunks.length);
 
-    // Start capture
-    mediaRecorder.start(1000); // Collect data every 1 second
-    console.log('MediaRecorder started with 1s intervals');
-    console.log('MediaRecorder state after start:', mediaRecorder.state);
+        if (recordedChunks.length > 0) {
+          // Create a blob from recorded chunks
+          const blob = new Blob(recordedChunks, { type: 'video/webm' });
+          console.log(`Created blob for segment with size: ${blob.size} bytes`);
+
+          // Generate filename with timestamp and segment number
+          const timestamp = new Date(segmentStartTime).toISOString().replace(/[:.]/g, '-');
+          const filename = `work-session-${timestamp}-segment${segmentCounter}.webm`;
+
+          try {
+            // Convert blob to buffer
+            const arrayBuffer = await blob.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+
+            // Save the recording to the database
+            const result = await ipcRenderer.invoke('save-recording', buffer, filename);
+
+            if (result.success) {
+              console.log(`Work session segment ${segmentCounter} saved to database with ID: ${result.id}`);
+              statusText.textContent = `Segment ${segmentCounter} saved to database (ID: ${result.id})`;
+            } else {
+              console.error(`Error saving work session segment ${segmentCounter}: ${result.error}`);
+              statusText.textContent = `Error saving segment ${segmentCounter}: ${result.error}`;
+            }
+          } catch (saveError) {
+            console.error(`Error converting blob to buffer or saving segment ${segmentCounter}:`, saveError);
+            statusText.textContent = `Error saving segment ${segmentCounter}: ${saveError.message}`;
+          }
+
+          // Start the next segment after a brief delay
+          setTimeout(() => {
+            if (isCheckedIn && !isOnBreak) {
+              segmentCounter++;
+              segmentStartTime = Date.now();
+              startNewSegment();
+            }
+          }, 100);
+        }
+      };
+
+      mediaRecorder.onstart = () => {
+        console.log('Recording started');
+        console.log('MediaRecorder state:', mediaRecorder.state);
+        statusText.textContent = 'Recording in progress...';
+      };
+
+      mediaRecorder.onpause = () => {
+        console.log('Recording paused');
+        console.log('MediaRecorder state:', mediaRecorder.state);
+        statusText.textContent = 'Recording paused...';
+      };
+
+      mediaRecorder.onresume = () => {
+        console.log('Recording resumed');
+        console.log('MediaRecorder state:', mediaRecorder.state);
+        statusText.textContent = 'Recording in progress...';
+      };
+
+      mediaRecorder.onerror = (event) => {
+        console.error('MediaRecorder error:', event);
+        statusText.textContent = `Recording error: ${event.error}`;
+      };
+
+      // Start capture for the specified duration
+      mediaRecorder.start();
+      console.log(`MediaRecorder started for segment ${segmentCounter}`);
+      console.log('MediaRecorder state after start:', mediaRecorder.state);
+
+      // Stop the recording after the specified duration
+      setTimeout(() => {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+          mediaRecorder.stop();
+        }
+      }, SEGMENT_DURATION);
+    }
+
+    // Start the first segment
+    startNewSegment();
 
     // Update status
     statusText.textContent = 'Screen recording started...';
-
-    // Log recording state changes
-    mediaRecorder.onstart = () => {
-      console.log('Recording started');
-      console.log('MediaRecorder state:', mediaRecorder.state);
-      statusText.textContent = 'Recording in progress...';
-    };
-    mediaRecorder.onpause = () => {
-      console.log('Recording paused');
-      console.log('MediaRecorder state:', mediaRecorder.state);
-      statusText.textContent = 'Recording paused...';
-    };
-    mediaRecorder.onresume = () => {
-      console.log('Recording resumed');
-      console.log('MediaRecorder state:', mediaRecorder.state);
-      statusText.textContent = 'Recording in progress...';
-    };
-    mediaRecorder.onerror = (event) => {
-      console.error('MediaRecorder error:', event);
-      statusText.textContent = `Recording error: ${event.error}`;
-    };
-
-    // Periodically check if recording is actually capturing data
-    setTimeout(() => {
-      if (recordedChunks.length === 0) {
-        console.warn('No data captured after 5 seconds, recording might not be working');
-        statusText.textContent = 'Warning: No data being captured, recording might not be working';
-      }
-    }, 5000);
 
   } catch (error) {
     console.error('Error starting screen recording:', error);
