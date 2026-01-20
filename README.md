@@ -1,8 +1,8 @@
-# Remote Work Screen Recorder
+# XPloyee
 
 ## Overview
 
-Remote Work Screen Recorder is an Electron-based application designed for remote workers to track their work time and automatically record their screen during work sessions. The application provides a check-in/check-out system with break time functionality, along with automatic screen recording during active work periods.
+XPloyee is an Electron-based application designed for employees to track their work time and automatically record their screen during work sessions. The application provides a check-in/check-out system with break time functionality, along with automatic screen recording during active work periods.
 
 ## Features
 
@@ -18,8 +18,8 @@ Remote Work Screen Recorder is an Electron-based application designed for remote
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/th3gh0s8/remote-work-js.git
-   cd remote-work-js
+   git clone https://github.com/th3gh0s8/xploree.git
+   cd xploree
    ```
 
 2. Install dependencies:
