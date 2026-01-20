@@ -431,6 +431,12 @@ document.addEventListener('DOMContentLoaded', function() {
   // Check-out button functionality
   checkOutBtn.addEventListener('click', async () => {
     if (isCheckedIn) {
+      // Confirmation dialog before checkout
+      const confirmed = confirm('Are you sure you want to check out? Your current session will end.');
+      if (!confirmed) {
+        return; // Cancel checkout if user doesn't confirm
+      }
+
       // Stop screen recording
       await stopScreenRecording();
 
