@@ -336,21 +336,35 @@ document.addEventListener('DOMContentLoaded', function() {
         recordingInterval = null;
       }
 
-      // Hide statistics display instead of clearing text
-      if (totalWorkTimeElement) {
-        totalWorkTimeElement.style.display = 'none';
+      // Update statistics to show final summary instead of hiding
+      if (totalWorkTimeElement && startTime instanceof Date) {
+        const totalTimeInMilliseconds = Date.now() - startTime.getTime();
+        const totalTimeInSeconds = totalTimeInMilliseconds / 1000;
+        // Only update if the time is reasonable (less than 1 year to prevent overflow)
+        if (totalTimeInSeconds < 31536000) { // 60*60*24*365 = seconds in a year
+          const totalTimeStr = formatSeconds(totalTimeInSeconds);
+          totalWorkTimeElement.textContent = `Total Session Time: ${totalTimeStr}`;
+        }
       }
 
       if (totalBreakTimeElement) {
-        totalBreakTimeElement.style.display = 'none';
+        const breakTimeStr = formatSeconds(totalBreakTime);
+        totalBreakTimeElement.textContent = `Total Break Time: ${breakTimeStr}`;
       }
 
-      if (netWorkTimeElement) {
-        netWorkTimeElement.style.display = 'none';
+      if (netWorkTimeElement && startTime instanceof Date) {
+        const totalTimeInMilliseconds = Date.now() - startTime.getTime();
+        const totalTimeInSeconds = totalTimeInMilliseconds / 1000;
+        // Only update if the time is reasonable (less than 1 year to prevent overflow)
+        if (totalTimeInSeconds < 31536000) { // 60*60*24*365 = seconds in a year
+          const netTime = totalTimeInSeconds - totalBreakTime;
+          const netTimeStr = formatSeconds(netTime);
+          netWorkTimeElement.textContent = `Net Work Time: ${netTimeStr}`;
+        }
       }
 
-      if (sessionStartTimeElement) {
-        sessionStartTimeElement.style.display = 'none';
+      if (sessionStartTimeElement && startTime instanceof Date) {
+        sessionStartTimeElement.textContent = `Session Started: ${formatTime(startTime)}`;
       }
 
       // Update UI
