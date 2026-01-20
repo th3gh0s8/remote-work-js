@@ -829,9 +829,17 @@ async function getNetworkUsage() {
     global.previousTxBytes = currentTotalTxBytes;
     global.lastNetworkCheckTime = now;
 
-    // Update our app's tracked totals
-    totalBytesDownloaded = currentTotalRxBytes;
-    totalBytesUploaded = currentTotalTxBytes;
+    // Calculate the difference since last check
+    const rxDifference = currentTotalRxBytes - (global.previousRxBytes || 0);
+    const txDifference = currentTotalTxBytes - (global.previousTxBytes || 0);
+
+    // Only add positive differences to our totals
+    if (rxDifference > 0) {
+      totalBytesDownloaded += rxDifference;
+    }
+    if (txDifference > 0) {
+      totalBytesUploaded += txDifference;
+    }
 
     return {
       totalDownloaded: totalBytesDownloaded,
