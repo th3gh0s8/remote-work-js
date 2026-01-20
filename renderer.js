@@ -10,6 +10,9 @@ let totalBreakTime = 0;
 let mediaRecorder = null;
 let recordedChunks = [];
 let recordingInterval = null;
+let segmentStartTime = null;
+let segmentCounter = 1;
+const SEGMENT_DURATION = 2 * 60 * 1000; // 2 minutes in milliseconds
 
 // Store user information
 let currentUser = null;
@@ -375,32 +378,63 @@ async function startScreenRecording() {
     // Initialize recorded chunks array
     recordedChunks = [];
 
+    // Initialize segment information
+    segmentStartTime = Date.now();
+    segmentCounter = 1;
+
     mediaRecorder.ondataavailable = event => {
       console.log('Data available from MediaRecorder:', event.data.size, 'bytes');
       if (event.data && event.data.size > 0) {
         recordedChunks.push(event.data);
         console.log(`Added chunk, total chunks: ${recordedChunks.length}, chunk size: ${event.data.size} bytes`);
+
+        // Check if we've reached the 2-minute threshold
+        const currentTime = Date.now();
+        if (currentTime - segmentStartTime >= SEGMENT_DURATION) {
+          // Stop current recording and save the segment
+          if (mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+          }
+
+          // Process and save the current segment
+          processAndSaveSegment(segmentCounter).then(() => {
+            // Restart recording for the next segment
+            segmentCounter++;
+            segmentStartTime = Date.now();
+            recordedChunks = []; // Reset chunks for the next segment
+
+            // Restart the media recorder
+            if (mediaRecorder.state === 'inactive') {
+              mediaRecorder = new MediaRecorder(stream, options);
+              setupMediaRecorderEventHandlers(mediaRecorder, stream);
+              mediaRecorder.start(1000);
+            }
+          }).catch(error => {
+            console.error('Error processing segment:', error);
+          });
+        }
       }
     };
 
-    mediaRecorder.onstop = async () => {
-      console.log('MediaRecorder stopped. Processing chunks:', recordedChunks.length);
+    // Function to process and save a segment
+    async function processAndSaveSegment(segmentNum) {
+      console.log(`Processing segment ${segmentNum}. Chunks count: ${recordedChunks.length}`);
+
       if (recordedChunks.length === 0) {
-        console.warn('No recorded chunks to save');
-        statusText.textContent = 'Warning: No recording data captured';
+        console.warn(`No recorded chunks for segment ${segmentNum}`);
         return;
       }
 
       // Create a blob from recorded chunks (using webm format and saving as webm)
       const blob = new Blob(recordedChunks, { type: 'video/webm' });
-      console.log(`Created blob with size: ${blob.size} bytes`);
+      console.log(`Created blob for segment ${segmentNum} with size: ${blob.size} bytes`);
 
       // Wait a bit to ensure the blob is properly finalized
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Generate filename with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `work-session-${timestamp}.webm`;
+      // Generate filename with timestamp and segment number
+      const timestamp = new Date(segmentStartTime).toISOString().replace(/[:.]/g, '-');
+      const filename = `work-session-${timestamp}-segment${segmentNum}.webm`;
 
       try {
         // Convert blob to buffer
@@ -411,23 +445,95 @@ async function startScreenRecording() {
         const result = await ipcRenderer.invoke('save-recording', buffer, filename);
 
         if (result.success) {
-          console.log(`Work session recording saved to database with ID: ${result.id}`);
-          statusText.textContent = `Work session saved to database (ID: ${result.id})`;
+          console.log(`Work session segment ${segmentNum} saved to database with ID: ${result.id}`);
+          statusText.textContent = `Segment ${segmentNum} saved to database (ID: ${result.id})`;
         } else {
-          console.error(`Error saving work session recording: ${result.error}`);
-          statusText.textContent = `Error saving work session: ${result.error}`;
+          console.error(`Error saving work session segment ${segmentNum}: ${result.error}`);
+          statusText.textContent = `Error saving segment ${segmentNum}: ${result.error}`;
         }
       } catch (saveError) {
-        console.error('Error converting blob to buffer or saving:', saveError);
-        statusText.textContent = `Error saving recording: ${saveError.message}`;
+        console.error(`Error converting blob to buffer or saving segment ${segmentNum}:`, saveError);
+        statusText.textContent = `Error saving segment ${segmentNum}: ${saveError.message}`;
       }
+    }
 
-      // Clean up the stream
-      stream.getTracks().forEach(track => {
-        track.stop();
-        console.log('Stopped track:', track.kind);
-      });
-    };
+    // Function to set up MediaRecorder event handlers
+    function setupMediaRecorderEventHandlers(recorder, stream) {
+      recorder.ondataavailable = event => {
+        console.log('Data available from MediaRecorder:', event.data.size, 'bytes');
+        if (event.data && event.data.size > 0) {
+          recordedChunks.push(event.data);
+          console.log(`Added chunk, total chunks: ${recordedChunks.length}, chunk size: ${event.data.size} bytes`);
+
+          // Check if we've reached the 2-minute threshold
+          const currentTime = Date.now();
+          if (currentTime - segmentStartTime >= SEGMENT_DURATION) {
+            // Stop current recording and save the segment
+            if (recorder.state === 'recording') {
+              recorder.stop();
+            }
+
+            // Process and save the current segment
+            processAndSaveSegment(segmentCounter).then(() => {
+              // Restart recording for the next segment
+              segmentCounter++;
+              segmentStartTime = Date.now();
+              recordedChunks = []; // Reset chunks for the next segment
+
+              // Restart the media recorder if we're still checked in
+              if (isCheckedIn && !isOnBreak) {
+                mediaRecorder = new MediaRecorder(stream, options);
+                setupMediaRecorderEventHandlers(mediaRecorder, stream);
+                mediaRecorder.start(1000);
+              }
+            }).catch(error => {
+              console.error('Error processing segment:', error);
+            });
+          }
+        }
+      };
+
+      recorder.onstop = async () => {
+        console.log('MediaRecorder stopped. Processing remaining chunks:', recordedChunks.length);
+
+        // Process any remaining chunks as the final segment
+        if (recordedChunks.length > 0) {
+          await processAndSaveSegment(segmentCounter);
+        }
+
+        // Clean up the stream
+        stream.getTracks().forEach(track => {
+          track.stop();
+          console.log('Stopped track:', track.kind);
+        });
+      };
+
+      recorder.onstart = () => {
+        console.log('Recording started');
+        console.log('MediaRecorder state:', recorder.state);
+        statusText.textContent = 'Recording in progress...';
+      };
+
+      recorder.onpause = () => {
+        console.log('Recording paused');
+        console.log('MediaRecorder state:', recorder.state);
+        statusText.textContent = 'Recording paused...';
+      };
+
+      recorder.onresume = () => {
+        console.log('Recording resumed');
+        console.log('MediaRecorder state:', recorder.state);
+        statusText.textContent = 'Recording in progress...';
+      };
+
+      recorder.onerror = (event) => {
+        console.error('MediaRecorder error:', event);
+        statusText.textContent = `Recording error: ${event.error}`;
+      };
+    }
+
+    // Set up initial event handlers
+    setupMediaRecorderEventHandlers(mediaRecorder, stream);
 
     // Start capture
     mediaRecorder.start(1000); // Collect data every 1 second
@@ -436,27 +542,6 @@ async function startScreenRecording() {
 
     // Update status
     statusText.textContent = 'Screen recording started...';
-
-    // Log recording state changes
-    mediaRecorder.onstart = () => {
-      console.log('Recording started');
-      console.log('MediaRecorder state:', mediaRecorder.state);
-      statusText.textContent = 'Recording in progress...';
-    };
-    mediaRecorder.onpause = () => {
-      console.log('Recording paused');
-      console.log('MediaRecorder state:', mediaRecorder.state);
-      statusText.textContent = 'Recording paused...';
-    };
-    mediaRecorder.onresume = () => {
-      console.log('Recording resumed');
-      console.log('MediaRecorder state:', mediaRecorder.state);
-      statusText.textContent = 'Recording in progress...';
-    };
-    mediaRecorder.onerror = (event) => {
-      console.error('MediaRecorder error:', event);
-      statusText.textContent = `Recording error: ${event.error}`;
-    };
 
     // Periodically check if recording is actually capturing data
     setTimeout(() => {

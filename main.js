@@ -607,7 +607,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     formData.append('brId', brId);
     formData.append('filename', filename);
     formData.append('type', 'recording');
-    formData.append('description', 'Work Session Recording');
+    formData.append('description', 'Work Session Recording Segment');
 
     console.log('Attempting to upload to:', serverUrl);
     console.log('File size:', buffer.length, 'bytes');
@@ -637,7 +637,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     const responseDataSize = JSON.stringify(response.data).length;
     totalBytesDownloaded += responseDataSize; // Add to total downloaded bytes
 
-    console.log(`Recording uploaded successfully to server:`, response.data);
+    console.log(`Recording segment uploaded successfully to server:`, response.data);
 
     // If upload is successful, also log to the web_images table for reference
     if (response.data && response.data.fileId) {
@@ -656,7 +656,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         brId,           // br_id
         imgID,          // imgID (server file ID)
         filename,       // imgName (original filename)
-        'Work Session Recording', // itmName (description)
+        'Work Session Recording Segment', // itmName (description)
         'recording',    // type
         userId,         // user_id
         currentDate,    // date
@@ -664,13 +664,13 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         'uploaded'      // status (changed to uploaded since it's on server)
       ]);
 
-      console.log(`Recording record saved to database with ID: ${result.insertId}`);
+      console.log(`Recording segment record saved to database with ID: ${result.insertId}`);
 
       return {
         success: true,
         id: result.insertId,
         fileId: response.data.fileId,
-        message: `Recording uploaded to server and saved to database with ID: ${result.insertId}`
+        message: `Recording segment uploaded to server and saved to database with ID: ${result.insertId}`
       };
     } else {
       // If server didn't return a file ID, use timestamp
@@ -688,7 +688,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         brId,           // br_id
         imgID,          // imgID
         filename,       // imgName (original filename)
-        'Work Session Recording', // itmName (description)
+        'Work Session Recording Segment', // itmName (description)
         'recording',    // type
         userId,         // user_id
         currentDate,    // date
@@ -696,16 +696,16 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         'uploaded'      // status
       ]);
 
-      console.log(`Recording record saved to database with ID: ${result.insertId}`);
+      console.log(`Recording segment record saved to database with ID: ${result.insertId}`);
 
       return {
         success: true,
         id: result.insertId,
-        message: `Recording uploaded to server and saved to database with ID: ${result.insertId}`
+        message: `Recording segment uploaded to server and saved to database with ID: ${result.insertId}`
       };
     }
   } catch (error) {
-    console.error('Error uploading recording to server:', error);
+    console.error('Error uploading recording segment to server:', error);
     console.error('Error details:', error.message, error.stack);
 
     // If upload fails, save to local captures directory as fallback
@@ -745,7 +745,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         brId,           // br_id
         imgID,          // imgID
         filename,       // imgName
-        'Work Session Recording', // itmName
+        'Work Session Recording Segment', // itmName
         'recording',    // type
         userId,         // user_id
         currentDate,    // date
