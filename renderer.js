@@ -38,6 +38,91 @@ document.addEventListener('DOMContentLoaded', function() {
   const totalDownloadedElement = document.getElementById('total-downloaded');
   const totalUploadedElement = document.getElementById('total-uploaded');
 
+  // Check if statistics elements already exist to avoid duplicates
+  let totalWorkTimeElement = document.getElementById('total-work-time');
+  let totalBreakTimeElement = document.getElementById('total-break-time');
+  let netWorkTimeElement = document.getElementById('net-work-time');
+  let sessionStartTimeElement = document.getElementById('session-start-time');
+
+  // Only create elements if they don't already exist
+  if (!totalWorkTimeElement) {
+    totalWorkTimeElement = document.createElement('div');
+    totalWorkTimeElement.id = 'total-work-time';
+    totalWorkTimeElement.style.marginTop = '5px';
+    totalWorkTimeElement.style.fontWeight = 'bold';
+  }
+
+  if (!totalBreakTimeElement) {
+    totalBreakTimeElement = document.createElement('div');
+    totalBreakTimeElement.id = 'total-break-time';
+    totalBreakTimeElement.style.marginTop = '5px';
+  }
+
+  if (!netWorkTimeElement) {
+    netWorkTimeElement = document.createElement('div');
+    netWorkTimeElement.id = 'net-work-time';
+    netWorkTimeElement.style.marginTop = '5px';
+  }
+
+  if (!sessionStartTimeElement) {
+    sessionStartTimeElement = document.createElement('div');
+    sessionStartTimeElement.id = 'session-start-time';
+    sessionStartTimeElement.style.marginTop = '5px';
+  }
+
+  // Create a completely separate container for work statistics
+  let workStatsContainer = document.getElementById('work-stats-container');
+  if (!workStatsContainer) {
+    workStatsContainer = document.createElement('div');
+    workStatsContainer.id = 'work-stats-container';
+    workStatsContainer.style.marginTop = '20px';
+    workStatsContainer.style.padding = '15px';
+    workStatsContainer.style.border = '2px solid #4CAF50';
+    workStatsContainer.style.borderRadius = '8px';
+    workStatsContainer.style.backgroundColor = '#f9f9f9';
+    workStatsContainer.style.width = '100%';
+
+    // Add a title for the work statistics section
+    const workStatsTitle = document.createElement('h3');
+    workStatsTitle.textContent = 'Work Session Statistics';
+    workStatsTitle.style.marginTop = '0';
+    workStatsTitle.style.color = '#2c3e50';
+    workStatsContainer.appendChild(workStatsTitle);
+
+    // Find the network usage section (.network-usage-section) and insert after it
+    const networkSection = document.querySelector('.network-usage-section');
+    if (networkSection) {
+      // Insert after the entire network usage section
+      networkSection.parentNode.insertBefore(workStatsContainer, networkSection.nextSibling);
+    } else {
+      // If network section not found, try to find the parent of network elements
+      const networkElements = document.querySelectorAll('#download-speed, #upload-speed, #total-downloaded, #total-uploaded');
+      if (networkElements.length > 0) {
+        // Insert after the parent of the first network element
+        const parentElement = networkElements[0].closest('[class*="network"], [id*="network"]') ||
+                             networkElements[0].parentElement;
+        parentElement.parentNode.insertBefore(workStatsContainer, parentElement.nextSibling);
+      } else {
+        // If no network elements found, append to body
+        document.body.appendChild(workStatsContainer);
+      }
+    }
+  }
+
+  // Append elements to the work stats container if not already appended
+  if (!totalWorkTimeElement.parentElement) {
+    workStatsContainer.appendChild(totalWorkTimeElement);
+  }
+  if (!totalBreakTimeElement.parentElement) {
+    workStatsContainer.appendChild(totalBreakTimeElement);
+  }
+  if (!netWorkTimeElement.parentElement) {
+    workStatsContainer.appendChild(netWorkTimeElement);
+  }
+  if (!sessionStartTimeElement.parentElement) {
+    workStatsContainer.appendChild(sessionStartTimeElement);
+  }
+
   // Track window visibility state
   let isWindowVisible = true;
 
@@ -91,6 +176,27 @@ document.addEventListener('DOMContentLoaded', function() {
 
       statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Starting screen recording...`;
 
+      // Show and initialize statistics display
+      if (totalWorkTimeElement) {
+        totalWorkTimeElement.style.display = 'block';
+        totalWorkTimeElement.textContent = `Total Session Time: 00:00:00`;
+      }
+
+      if (totalBreakTimeElement) {
+        totalBreakTimeElement.style.display = 'block';
+        totalBreakTimeElement.textContent = `Total Break Time: 00:00:00`;
+      }
+
+      if (netWorkTimeElement) {
+        netWorkTimeElement.style.display = 'block';
+        netWorkTimeElement.textContent = `Net Work Time: 00:00:00`;
+      }
+
+      if (sessionStartTimeElement) {
+        sessionStartTimeElement.style.display = 'block';
+        sessionStartTimeElement.textContent = `Session Started: ${formatTime(startTime)}`;
+      }
+
       try {
         // Log check-in activity
         const activityResult = await ipcRenderer.invoke('check-in');
@@ -129,6 +235,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
       breakBtn.textContent = 'Return from Break';
       statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong>`;
+
+      // Update statistics display
+      updateTimerDisplay();
     } else if (isCheckedIn && isOnBreak) {
       // Returning from break - resume screen recording
       resumeScreenRecording();
@@ -150,6 +259,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
       breakBtn.textContent = 'Break Time';
       statusText.innerHTML = `Returned from break. Back to work at <strong>${formatTime(new Date())}</strong>`;
+
+      // Update statistics display
+      updateTimerDisplay();
     }
   });
 
@@ -175,6 +287,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const workedTimeStr = formatSeconds(totalTimeWorked);
       const breakTimeStr = formatSeconds(totalBreakTime);
       const netWorkedTime = formatSeconds(totalTimeWorked - totalBreakTime);
+      const totalTimeStr = formatSeconds((currentTime - startTime) / 1000);
 
       statusText.innerHTML = `
         Checked out at <strong>${formatTime(currentTime)}</strong><br>
@@ -182,6 +295,23 @@ document.addEventListener('DOMContentLoaded', function() {
         Break time: <strong>${breakTimeStr}</strong><br>
         Net work time: <strong>${netWorkedTime}</strong>
       `;
+
+      // Update final statistics display
+      if (totalWorkTimeElement) {
+        totalWorkTimeElement.textContent = `Total Session Time: ${totalTimeStr}`;
+      }
+
+      if (totalBreakTimeElement) {
+        totalBreakTimeElement.textContent = `Total Break Time: ${breakTimeStr}`;
+      }
+
+      if (netWorkTimeElement) {
+        netWorkTimeElement.textContent = `Net Work Time: ${netWorkedTime}`;
+      }
+
+      if (sessionStartTimeElement) {
+        sessionStartTimeElement.textContent = `Session Started: ${formatTime(startTime)}`;
+      }
 
       // Log check-out activity
       try {
@@ -204,6 +334,37 @@ document.addEventListener('DOMContentLoaded', function() {
       if (recordingInterval) {
         clearInterval(recordingInterval);
         recordingInterval = null;
+      }
+
+      // Update statistics to show final summary instead of hiding
+      if (totalWorkTimeElement && startTime instanceof Date) {
+        const totalTimeInMilliseconds = Date.now() - startTime.getTime();
+        const totalTimeInSeconds = totalTimeInMilliseconds / 1000;
+        // Only update if the time is reasonable (less than 1 year to prevent overflow)
+        if (totalTimeInSeconds < 31536000) { // 60*60*24*365 = seconds in a year
+          const totalTimeStr = formatSeconds(totalTimeInSeconds);
+          totalWorkTimeElement.textContent = `Total Session Time: ${totalTimeStr}`;
+        }
+      }
+
+      if (totalBreakTimeElement) {
+        const breakTimeStr = formatSeconds(totalBreakTime);
+        totalBreakTimeElement.textContent = `Total Break Time: ${breakTimeStr}`;
+      }
+
+      if (netWorkTimeElement && startTime instanceof Date) {
+        const totalTimeInMilliseconds = Date.now() - startTime.getTime();
+        const totalTimeInSeconds = totalTimeInMilliseconds / 1000;
+        // Only update if the time is reasonable (less than 1 year to prevent overflow)
+        if (totalTimeInSeconds < 31536000) { // 60*60*24*365 = seconds in a year
+          const netTime = totalTimeInSeconds - totalBreakTime;
+          const netTimeStr = formatSeconds(netTime);
+          netWorkTimeElement.textContent = `Net Work Time: ${netTimeStr}`;
+        }
+      }
+
+      if (sessionStartTimeElement && startTime instanceof Date) {
+        sessionStartTimeElement.textContent = `Session Started: ${formatTime(startTime)}`;
       }
 
       // Update UI
@@ -258,12 +419,43 @@ function updateTimerDisplay() {
 
   const formattedTime = formatSeconds(elapsed);
 
+  // Calculate current break time if on break
+  let currentBreak = 0;
+  if (isOnBreak && breakStartTime) {
+    currentBreak = (currentTime - breakStartTime) / 1000;
+  }
+
+  // Calculate total break time including current break
+  const totalBreakWithCurrent = totalBreakTime + currentBreak;
+
+  // Calculate net work time (total work time minus total break time)
+  const netWorkTime = elapsed;
+
   if (isOnBreak) {
     statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong><br>
                             Time worked: <strong>${formattedTime}</strong>`;
   } else {
     statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong><br>
                             Time worked: <strong>${formattedTime}</strong>`;
+  }
+
+  // Update additional statistics display
+  if (totalWorkTimeElement) {
+    // Total time since check-in (including breaks)
+    const totalTimeSinceCheckIn = (currentTime - startTime) / 1000;
+    totalWorkTimeElement.textContent = `Total Session Time: ${formatSeconds(totalTimeSinceCheckIn)}`;
+  }
+
+  if (totalBreakTimeElement) {
+    totalBreakTimeElement.textContent = `Total Break Time: ${formatSeconds(totalBreakWithCurrent)}`;
+  }
+
+  if (netWorkTimeElement) {
+    netWorkTimeElement.textContent = `Net Work Time: ${formatSeconds(netWorkTime)}`;
+  }
+
+  if (sessionStartTimeElement) {
+    sessionStartTimeElement.textContent = `Session Started: ${formatTime(startTime)}`;
   }
 }
 
