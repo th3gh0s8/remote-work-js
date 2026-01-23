@@ -25,7 +25,7 @@ $sort_column = $_GET['sort_col'] ?? 'last_activity';
 $sort_direction = $_GET['sort_dir'] ?? 'DESC';
 $user_status_filter = $_GET['user_status'] ?? '';
 $branch_filter = $_GET['branch_id'] ?? '';
-$page = isset($_GET['page']) && $_GET['page'] == 'active_users' ? (int)$_GET['active_users_page'] : 1;
+$page = (isset($_GET['page']) && $_GET['page'] == 'active_users' && isset($_GET['active_users_page'])) ? max(1, (int)$_GET['active_users_page']) : 1;
 $limit = 10; // Number of records per page
 $offset = ($page - 1) * $limit;
 
@@ -105,7 +105,7 @@ $active_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 // Fetch recent recordings
 $rec_sort_column = $_GET['rec_sort_col'] ?? 'w.date';
 $rec_sort_direction = $_GET['rec_sort_dir'] ?? 'DESC';
-$rec_page = isset($_GET['page']) && $_GET['page'] == 'recordings' ? (int)$_GET['recordings_page'] : 1;
+$rec_page = (isset($_GET['page']) && $_GET['page'] == 'recordings' && isset($_GET['recordings_page'])) ? max(1, (int)$_GET['recordings_page']) : 1;
 $rec_limit = 10; // Number of records per page
 $rec_offset = ($rec_page - 1) * $rec_limit;
 
@@ -145,7 +145,7 @@ $end_date = $_GET['end_date'] ?? '';
 // Fetch recent user activities
 $act_sort_column = $_GET['act_sort_col'] ?? 'ua.rDateTime';
 $act_sort_direction = $_GET['act_sort_dir'] ?? 'DESC';
-$act_page = isset($_GET['page']) && $_GET['page'] == 'activities' ? (int)$_GET['activities_page'] : 1;
+$act_page = (isset($_GET['page']) && $_GET['page'] == 'activities' && isset($_GET['activities_page'])) ? max(1, (int)$_GET['activities_page']) : 1;
 $act_limit = 10; // Number of records per page
 $act_offset = ($act_page - 1) * $act_limit;
 
@@ -223,7 +223,7 @@ $all_users_sort_direction = $_GET['all_users_sort_dir'] ?? 'DESC';
 $account_status_filter = $_GET['account_status'] ?? '';
 $online_status_filter = $_GET['online_status'] ?? '';
 $all_users_branch_filter = $_GET['all_users_branch'] ?? '';
-$all_users_page = isset($_GET['page']) && $_GET['page'] == 'all_users' ? (int)$_GET['all_users_page'] : 1;
+$all_users_page = (isset($_GET['page']) && $_GET['page'] == 'all_users' && isset($_GET['all_users_page'])) ? max(1, (int)$_GET['all_users_page']) : 1;
 $all_users_limit = 10; // Number of records per page
 $all_users_offset = ($all_users_page - 1) * $all_users_limit;
 
