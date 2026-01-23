@@ -214,31 +214,19 @@ function createTrayMenu(isLoggedIn: boolean): Array<Electron.MenuItemConstructor
       label: 'Show App',
       click: () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          // Main window exists - toggle visibility
-          if (mainWindow.isVisible()) {
-            // Window is visible, hide it (minimize to tray)
-            mainWindow.hide();
-          } else {
-            // Window is hidden, show it
-            if (mainWindow.isMinimized()) {
-              mainWindow.restore();
-            }
-            mainWindow.show();
-            mainWindow.focus();
+          // Main window exists, show it
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
           }
+          mainWindow.show();
+          mainWindow.focus();
         } else if (loginWindow && !loginWindow.isDestroyed()) {
-          // Login window exists - toggle visibility
-          if (loginWindow.isVisible()) {
-            // Window is visible, hide it
-            loginWindow.hide();
-          } else {
-            // Window is hidden, show it
-            if (loginWindow.isMinimized()) {
-              loginWindow.restore();
-            }
-            loginWindow.show();
-            loginWindow.focus();
+          // Login window exists, show it
+          if (loginWindow.isMinimized()) {
+            loginWindow.restore();
           }
+          loginWindow.show();
+          loginWindow.focus();
         } else {
           // Neither window exists, recreate the appropriate window
           if (loggedInUser) {
