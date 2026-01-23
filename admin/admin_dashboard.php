@@ -315,275 +315,481 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - Remote Work Monitoring</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
+        :root {
+            --primary-color: #4361ee;
+            --secondary-color: #3f37c9;
+            --success-color: #4cc9f0;
+            --danger-color: #f72585;
+            --warning-color: #f8961e;
+            --info-color: #4895ef;
+            --light-bg: #f8f9fa;
+            --dark-bg: #212529;
+            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --border-radius: 8px;
+            --transition: all 0.3s ease;
+        }
+
+        * {
             margin: 0;
             padding: 0;
-            background-color: #f4f4f4;
+            box-sizing: border-box;
         }
-        
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f7fb;
+            color: #333;
+            line-height: 1.6;
+        }
+
         .header {
-            background-color: #333;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             color: white;
-            padding: 15px 20px;
+            padding: 15px 30px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
-        
+
         .header h1 {
             margin: 0;
+            font-size: 1.8em;
+            font-weight: 600;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-icon {
             font-size: 1.5em;
         }
-        
+
         .logout-btn {
-            background-color: #dc3545;
+            background: linear-gradient(to right, var(--danger-color), #e63946);
             color: white;
             border: none;
-            padding: 8px 15px;
-            border-radius: 4px;
+            padding: 10px 20px;
+            border-radius: 30px;
             cursor: pointer;
             text-decoration: none;
             display: inline-block;
+            font-weight: 500;
+            transition: var(--transition);
+            box-shadow: 0 2px 5px rgba(247, 37, 133, 0.3);
         }
-        
+
         .logout-btn:hover {
-            background-color: #c82333;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(247, 37, 133, 0.4);
         }
-        
+
         .container {
-            max-width: 1200px;
-            margin: 20px auto;
-            padding: 20px;
+            max-width: 1400px;
+            margin: 30px auto;
+            padding: 0 20px;
         }
-        
+
         .stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
             margin-bottom: 30px;
         }
-        
+
         .stat-card {
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            background: white;
+            padding: 25px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--card-shadow);
             text-align: center;
+            transition: var(--transition);
+            border-left: 4px solid var(--primary-color);
         }
-        
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+        }
+
         .stat-card h3 {
-            margin: 0 0 10px 0;
+            margin: 0 0 15px 0;
             color: #555;
             font-size: 1.1em;
+            font-weight: 500;
         }
-        
+
         .stat-card .number {
-            font-size: 2em;
-            font-weight: bold;
-            color: #007bff;
+            font-size: 2.5em;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 5px;
         }
-        
+
+        .stat-card .label {
+            color: #777;
+            font-size: 0.9em;
+        }
+
         .section {
             background-color: white;
             margin-bottom: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: var(--border-radius);
+            box-shadow: var(--card-shadow);
             overflow: hidden;
+            transition: var(--transition);
         }
-        
+
+        .section:hover {
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+
         .section-header {
-            background-color: #007bff;
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
             color: white;
-            padding: 15px 20px;
+            padding: 20px 25px;
             margin: 0;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        
+
         .section-header h2 {
             margin: 0;
+            font-size: 1.4em;
+            font-weight: 500;
+        }
+
+        .section-header .icon {
+            margin-right: 10px;
             font-size: 1.2em;
         }
-        
+
         .filters {
-            padding: 10px 20px;
-            background-color: #f1f1f1;
+            padding: 20px;
+            background-color: #f8f9fc;
             display: flex;
+            flex-wrap: wrap;
             gap: 15px;
             align-items: center;
+            border-bottom: 1px solid #eee;
         }
-        
+
         .filter-item {
             display: flex;
             flex-direction: column;
+            min-width: 150px;
         }
-        
+
         .filter-item label {
             font-size: 0.9em;
-            margin-bottom: 3px;
+            margin-bottom: 8px;
             color: #555;
+            font-weight: 500;
         }
-        
-        .filter-item input {
-            padding: 5px;
-            border: 1px solid #ccc;
-            border-radius: 3px;
+
+        .filter-item input,
+        .filter-item select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 0.95em;
+            transition: var(--transition);
         }
-        
+
+        .filter-item input:focus,
+        .filter-item select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.2);
+        }
+
         .apply-filters {
-            padding: 8px 15px;
-            background-color: #28a745;
+            padding: 10px 20px;
+            background: linear-gradient(to right, var(--success-color), #4895ef);
             color: white;
             border: none;
-            border-radius: 3px;
+            border-radius: 5px;
             cursor: pointer;
             align-self: flex-end;
             margin-bottom: 5px;
+            font-weight: 500;
+            transition: var(--transition);
         }
-        
+
+        .apply-filters:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(76, 201, 240, 0.3);
+        }
+
         .section-content {
-            padding: 20px;
+            padding: 25px;
         }
-        
+
         table {
             width: 100%;
             border-collapse: collapse;
+            margin-top: 10px;
         }
-        
+
         th, td {
-            padding: 12px;
+            padding: 15px;
             text-align: left;
-            border-bottom: 1px solid #ddd;
+            border-bottom: 1px solid #eee;
+            transition: var(--transition);
         }
-        
+
         th {
             background-color: #f8f9fa;
-            font-weight: bold;
+            font-weight: 600;
+            color: #495057;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
         }
-        
-        tr:hover {
-            background-color: #f5f5f5;
-        }
-        
-        .recording-actions {
+
+        th a {
+            color: inherit;
+            text-decoration: none;
             display: flex;
+            align-items: center;
             gap: 5px;
         }
-        
+
+        th a:hover {
+            color: var(--primary-color);
+        }
+
+        tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+
+        tr:hover {
+            background-color: #f0f5ff;
+            transform: scale(1.01);
+        }
+
+        .recording-actions {
+            display: flex;
+            gap: 8px;
+        }
+
         .view-btn, .download-btn, .edit-btn, .delete-btn {
-            padding: 5px 10px;
+            padding: 8px 15px;
             border: none;
-            border-radius: 3px;
+            border-radius: 5px;
             cursor: pointer;
             text-decoration: none;
-            font-size: 0.9em;
+            font-size: 0.85em;
             color: white;
+            transition: var(--transition);
+            font-weight: 500;
         }
-        
+
         .view-btn {
-            background-color: #28a745;
+            background: linear-gradient(to right, #2a9d8f, #264653);
         }
-        
+
         .download-btn {
-            background-color: #17a2b8;
+            background: linear-gradient(to right, var(--info-color), #4361ee);
         }
-        
+
         .edit-btn {
-            background-color: #ffc107;
+            background: linear-gradient(to right, #ffb703, #fb8500);
             color: #212529;
         }
-        
+
         .delete-btn {
-            background-color: #dc3545;
+            background: linear-gradient(to right, var(--danger-color), #e63946);
         }
-        
+
         .view-btn:hover, .download-btn:hover, .edit-btn:hover, .delete-btn:hover {
-            opacity: 0.9;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         }
-        
+
         .no-data {
             text-align: center;
-            padding: 20px;
-            color: #666;
+            padding: 40px;
+            color: #6c757d;
+            font-size: 1.1em;
         }
-        
+
         .activity-badge {
-            padding: 4px 8px;
-            border-radius: 12px;
+            padding: 6px 12px;
+            border-radius: 20px;
             font-size: 0.8em;
-            font-weight: bold;
+            font-weight: 600;
+            text-transform: capitalize;
+            display: inline-block;
         }
-        
+
         .badge-login {
             background-color: #d4edda;
             color: #155724;
         }
-        
+
         .badge-check-in {
             background-color: #cce5ff;
             color: #004085;
         }
-        
+
         .badge-break-start {
             background-color: #fff3cd;
             color: #856404;
         }
-        
+
         .badge-break-end {
             background-color: #d1ecf1;
             color: #0c5460;
         }
-        
+
         .badge-check-out {
             background-color: #f8d7da;
             color: #721c24;
         }
-        
+
         .tabs {
             display: flex;
             margin-bottom: 20px;
-            border-bottom: 1px solid #ddd;
+            border-bottom: 1px solid #dee2e6;
+            background: white;
+            border-radius: var(--border-radius) var(--border-radius) 0 0;
+            overflow: hidden;
         }
-        
+
         .tab {
-            padding: 10px 20px;
+            padding: 15px 25px;
             cursor: pointer;
             background-color: #f8f9fa;
-            border: 1px solid #ddd;
+            border: 1px solid #dee2e6;
             border-bottom: none;
             border-radius: 5px 5px 0 0;
-            margin-right: 5px;
+            margin-right: 2px;
+            font-weight: 500;
+            transition: var(--transition);
         }
-        
+
+        .tab:hover {
+            background-color: #e9ecef;
+        }
+
         .tab.active {
-            background-color: #007bff;
+            background: linear-gradient(to bottom, var(--primary-color), var(--secondary-color));
             color: white;
+            border-color: var(--primary-color);
         }
-        
+
         .tab-content {
             display: none;
         }
-        
+
         .tab-content.active {
             display: block;
         }
-        
+
         .user-status-active {
-            color: green;
-            font-weight: bold;
+            color: #28a745;
+            font-weight: 600;
+            background-color: rgba(40, 167, 69, 0.1);
+            padding: 4px 10px;
+            border-radius: 20px;
         }
-        
+
         .user-status-inactive {
-            color: red;
-            font-weight: bold;
+            color: #dc3545;
+            font-weight: 600;
+            background-color: rgba(220, 53, 69, 0.1);
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+
+        .pagination a {
+            padding: 10px 16px;
+            margin: 0 4px;
+            text-decoration: none;
+            border: 1px solid #ddd;
+            color: var(--primary-color);
+            border-radius: 5px;
+            transition: var(--transition);
+        }
+
+        .pagination a.active {
+            background-color: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .pagination a:hover:not(.active) {
+            background-color: #e9ecef;
+            border-color: #adb5bd;
+        }
+
+        .pagination a:first-child,
+        .pagination a:last-child {
+            background: linear-gradient(to right, var(--info-color), var(--primary-color));
+            color: white;
+            border: none;
+        }
+
+        .pagination a:first-child:hover,
+        .pagination a:last-child:hover {
+            opacity: 0.9;
+        }
+
+        .search-box {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            width: 250px;
+            margin-bottom: 15px;
+        }
+
+        .table-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .action-btn {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: var(--transition);
+        }
+
+        .refresh-btn {
+            background: linear-gradient(to right, #6a11cb, #2575fc);
+            color: white;
+        }
+
+        .export-btn {
+            background: linear-gradient(to right, #11998e, #38ef7d);
+            color: white;
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>Admin Dashboard</h1>
+        <div class="logo">
+            <span class="logo-icon">📊</span>
+            <h1>Admin Dashboard</h1>
+        </div>
         <a href="./admin_logout.php" class="logout-btn">Logout</a>
     </div>
     
@@ -592,18 +798,22 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <div class="stat-card">
                 <h3>Total Users</h3>
                 <div class="number"><?php echo $total_users; ?></div>
+                <div class="label">Registered in system</div>
             </div>
             <div class="stat-card">
                 <h3>Active Today</h3>
                 <div class="number"><?php echo $active_today; ?></div>
+                <div class="label">Currently using app</div>
             </div>
             <div class="stat-card">
                 <h3>Total Recordings</h3>
                 <div class="number"><?php echo $total_recordings; ?></div>
+                <div class="label">Saved sessions</div>
             </div>
             <div class="stat-card">
                 <h3>Recordings Today</h3>
                 <div class="number"><?php echo $recordings_today; ?></div>
+                <div class="label">New uploads</div>
             </div>
         </div>
         
@@ -617,7 +827,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div id="active-users" class="tab-content active">
             <div class="section">
                 <div class="section-header">
-                    <h2>Active Users (Last 24 Hours)</h2>
+                    <h2><span class="icon">👥</span> Active Users (Last 24 Hours)</h2>
                 </div>
                 <div class="filters">
                     <div class="filter-item">
@@ -694,7 +904,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div id="recordings" class="tab-content">
             <div class="section">
                 <div class="section-header">
-                    <h2>Recent Recordings (Last 7 Days)</h2>
+                    <h2><span class="icon">📹</span> Recent Recordings (Last 7 Days)</h2>
                 </div>
                 <div class="section-content">
                     <?php if (count($recordings) > 0): ?>
@@ -772,7 +982,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div id="activities" class="tab-content">
             <div class="section">
                 <div class="section-header">
-                    <h2>Recent User Activities</h2>
+                    <h2><span class="icon">📋</span> Recent User Activities</h2>
                 </div>
                 <div class="filters">
                     <div class="filter-item">
@@ -844,7 +1054,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div id="all-users" class="tab-content">
             <div class="section">
                 <div class="section-header">
-                    <h2>All Users</h2>
+                    <h2><span class="icon">👤</span> All Users</h2>
                 </div>
                 <div class="filters">
                     <div class="filter-item">
