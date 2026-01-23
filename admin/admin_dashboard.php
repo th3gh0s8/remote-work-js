@@ -808,6 +808,44 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             background: linear-gradient(to right, #11998e, #38ef7d);
             color: white;
         }
+
+        .filter-item {
+            position: relative;
+            display: inline-block;
+        }
+
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: white;
+            min-width: 200px;
+            box-shadow: 0px 8px 16px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            top: calc(100% + 5px); /* Position below the input with slight gap */
+            left: 0;
+        }
+
+        .dropdown-content .user-option {
+            color: black;
+            padding: 10px;
+            text-decoration: none;
+            display: block;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .dropdown-content .user-option:hover {
+            background-color: #f1f1f1;
+        }
+
+        .dropdown-content .user-option.selected {
+            background-color: #4361ee;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -934,22 +972,40 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </div>
                 <div class="filters">
                     <div class="filter-item">
-                        <label for="rec_user_filter">User:</label>
-                        <select id="rec_user_filter" name="rec_user_filter" onchange="filterRecordings()">
-                            <option value="">All Users</option>
+                        <label for="rec_user_filter">User (Rep ID):</label>
+                        <input type="text" id="rec_user_filter_input" placeholder="Search by Rep ID or Name"
+                               value="<?php
+                                   $selected_user = '';
+                                   if (!empty($rec_user_filter)) {
+                                       $user_stmt = $pdo->prepare("SELECT Name, RepID FROM salesrep WHERE ID = ?");
+                                       $user_stmt->execute([$rec_user_filter]);
+                                       $user_row = $user_stmt->fetch(PDO::FETCH_ASSOC);
+                                       if ($user_row) {
+                                           $selected_user = $user_row['RepID'] . ' - ' . $user_row['Name'];
+                                       }
+                                   }
+                                   echo htmlspecialchars($selected_user);
+                               ?>"
+                               onclick="toggleUserDropdown()"
+                               onkeyup="filterUserOptions()" />
+                        <div id="user-dropdown" class="dropdown-content">
+                            <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold;" onclick="clearUserSelection()">All Users</div>
                             <?php
                             // Fetch all users for the filter dropdown
-                            $user_filter_stmt = $pdo->query("SELECT ID, Name, RepID FROM salesrep WHERE Actives = 'YES' ORDER BY Name");
+                            $user_filter_stmt = $pdo->query("SELECT ID, Name, RepID FROM salesrep WHERE Actives = 'YES' ORDER BY RepID");
                             $filter_users = $user_filter_stmt->fetchAll(PDO::FETCH_ASSOC);
-                            $selected_user_filter = $_GET['rec_user_filter'] ?? '';
 
                             foreach ($filter_users as $filter_user): ?>
-                                <option value="<?php echo $filter_user['ID']; ?>"
-                                    <?php echo $selected_user_filter == $filter_user['ID'] ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($filter_user['Name']); ?> (<?php echo htmlspecialchars($filter_user['RepID']); ?>)
-                                </option>
+                                <div class="user-option"
+                                     data-id="<?php echo $filter_user['ID']; ?>"
+                                     data-repid="<?php echo htmlspecialchars($filter_user['RepID']); ?>"
+                                     data-name="<?php echo htmlspecialchars($filter_user['Name']); ?>"
+                                     onclick="selectUser(<?php echo $filter_user['ID']; ?>, '<?php echo addslashes($filter_user['RepID']); ?>', '<?php echo addslashes($filter_user['Name']); ?>')">
+                                    <?php echo htmlspecialchars($filter_user['RepID']); ?> - <?php echo htmlspecialchars($filter_user['Name']); ?>
+                                </div>
                             <?php endforeach; ?>
-                        </select>
+                        </div>
+                        <input type="hidden" id="rec_user_filter" name="rec_user_filter" value="<?php echo $rec_user_filter; ?>" />
                     </div>
                     <div class="filter-item">
                         <label for="rec_start_date">Start Date:</label>
@@ -1398,6 +1454,70 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             window.location.href = url;
         }
+
+        function toggleUserDropdown() {
+            const dropdown = document.getElementById('user-dropdown');
+            dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function selectUser(userId, repId, name) {
+            const input = document.getElementById('rec_user_filter_input');
+            const hiddenInput = document.getElementById('rec_user_filter');
+
+            input.value = repId + ' - ' + name;
+            hiddenInput.value = userId;
+
+            // Close the dropdown
+            document.getElementById('user-dropdown').style.display = 'none';
+
+            // Trigger the filter function
+            filterRecordings();
+        }
+
+        function clearUserSelection() {
+            const input = document.getElementById('rec_user_filter_input');
+            const hiddenInput = document.getElementById('rec_user_filter');
+
+            input.value = '';
+            hiddenInput.value = '';
+
+            // Close the dropdown
+            document.getElementById('user-dropdown').style.display = 'none';
+
+            // Trigger the filter function
+            filterRecordings();
+        }
+
+        function filterUserOptions() {
+            const input = document.getElementById('rec_user_filter_input');
+            const filter = input.value.toLowerCase();
+            const div = document.getElementById('user-dropdown');
+            const options = div.getElementsByClassName('user-option');
+
+            for (let i = 0; i < options.length; i++) {
+                const repId = options[i].getAttribute('data-repid').toLowerCase();
+                const name = options[i].getAttribute('data-name').toLowerCase();
+
+                if (repId.indexOf(filter) > -1 || name.indexOf(filter) > -1) {
+                    options[i].style.display = '';
+                } else {
+                    options[i].style.display = 'none';
+                }
+            }
+        }
+
+        // Close dropdown if clicked outside
+        document.addEventListener('click', function(event) {
+            const input = document.getElementById('rec_user_filter_input');
+            const dropdown = document.getElementById('user-dropdown');
+
+            if (event.target !== input && !input.contains(event.target) &&
+                event.target !== dropdown && !dropdown.contains(event.target)) {
+                if (dropdown.style.display === 'block') {
+                    dropdown.style.display = 'none';
+                }
+            }
+        });
     </script>
 </body>
 </html>
