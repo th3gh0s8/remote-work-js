@@ -43,6 +43,7 @@ Default admin credentials:
 - `admin/admin_dashboard.php` - Main dashboard with user and recording information
 - `admin/admin_logout.php` - Logout handler
 - `admin/admin_download.php` - File download handler for recordings
+- `admin/admin_view.php` - File viewer for recordings
 
 ### Accessing the Admin Panel
 Navigate to `http://your-domain/admin/admin_login.php` in your browser.

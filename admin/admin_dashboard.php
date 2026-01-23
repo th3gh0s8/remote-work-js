@@ -116,14 +116,31 @@ $rec_sort_column = in_array($rec_sort_column, $allowed_rec_columns) ? $rec_sort_
 // Validate sort direction
 $rec_sort_direction = strtoupper($rec_sort_direction) === 'ASC' ? 'ASC' : 'DESC';
 
+// Build the WHERE clause dynamically to allow for date range filtering
+$rec_where_conditions = ["w.type = 'recording'"];
+$rec_params = [];
+
+// Get date range for recordings specifically
+$rec_start_date = $_GET['rec_start_date'] ?? '';
+$rec_end_date = $_GET['rec_end_date'] ?? '';
+
+// Add date range condition only if dates are provided
+if (!empty($rec_start_date) && !empty($rec_end_date)) {
+    $rec_where_conditions[] = "w.date BETWEEN ? AND ?";
+    $rec_params[] = $rec_start_date;
+    $rec_params[] = $rec_end_date;
+}
+
+$rec_where_clause = !empty($rec_where_conditions) ? "WHERE " . implode(" AND ", $rec_where_conditions) : "";
+
 // Get total count for pagination
 $rec_count_stmt = $pdo->prepare("
     SELECT COUNT(*) as total
     FROM web_images w
     LEFT JOIN salesrep s ON w.user_id = s.ID
-    WHERE w.type = 'recording' AND w.date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+    {$rec_where_clause}
 ");
-$rec_count_stmt->execute();
+$rec_count_stmt->execute($rec_params);
 $rec_total_records = $rec_count_stmt->fetch(PDO::FETCH_ASSOC)['total'];
 $rec_total_pages = ceil($rec_total_records / $rec_limit);
 
@@ -131,11 +148,11 @@ $stmt = $pdo->prepare("
     SELECT w.*, s.Name as user_name, s.RepID
     FROM web_images w
     LEFT JOIN salesrep s ON w.user_id = s.ID
-    WHERE w.type = 'recording' AND w.date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+    {$rec_where_clause}
     ORDER BY {$rec_sort_column} {$rec_sort_direction}, w.time DESC
     LIMIT {$rec_limit} OFFSET {$rec_offset}
 ");
-$stmt->execute();
+$stmt->execute($rec_params);
 $recordings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get date range for filtering (moved before the user activities query)
@@ -904,20 +921,32 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div id="recordings" class="tab-content">
             <div class="section">
                 <div class="section-header">
-                    <h2><span class="icon">📹</span> Recent Recordings (Last 7 Days)</h2>
+                    <h2><span class="icon">📹</span> All Recordings</h2>
+                </div>
+                <div class="filters">
+                    <div class="filter-item">
+                        <label for="rec_start_date">Start Date:</label>
+                        <input type="date" id="rec_start_date" name="rec_start_date" value="<?php echo $rec_start_date; ?>">
+                    </div>
+                    <div class="filter-item">
+                        <label for="rec_end_date">End Date:</label>
+                        <input type="date" id="rec_end_date" name="rec_end_date" value="<?php echo $rec_end_date; ?>">
+                    </div>
+                    <button class="apply-filters" onclick="filterRecordings()">Apply Filters</button>
+                    <small style="align-self: center; color: #666;">Leave empty to show all records</small>
                 </div>
                 <div class="section-content">
                     <?php if (count($recordings) > 0): ?>
                         <table>
                             <thead>
                                 <tr>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.ID&rec_sort_dir=<?= $rec_sort_column === 'w.ID' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">ID <?= $rec_sort_column === 'w.ID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=s.Name&rec_sort_dir=<?= $rec_sort_column === 's.Name' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">User <?= $rec_sort_column === 's.Name' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=s.RepID&rec_sort_dir=<?= $rec_sort_column === 's.RepID' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Rep ID <?= $rec_sort_column === 's.RepID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.imgName&rec_sort_dir=<?= $rec_sort_column === 'w.imgName' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Recording Name <?= $rec_sort_column === 'w.imgName' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.date&rec_sort_dir=<?= $rec_sort_column === 'w.date' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Date <?= $rec_sort_column === 'w.date' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.time&rec_sort_dir=<?= $rec_sort_column === 'w.time' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Time <?= $rec_sort_column === 'w.time' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.status&rec_sort_dir=<?= $rec_sort_column === 'w.status' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Status <?= $rec_sort_column === 'w.status' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.ID&rec_sort_dir=<?= $rec_sort_column === 'w.ID' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?>">ID <?= $rec_sort_column === 'w.ID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=s.Name&rec_sort_dir=<?= $rec_sort_column === 's.Name' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?>">User <?= $rec_sort_column === 's.Name' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=s.RepID&rec_sort_dir=<?= $rec_sort_column === 's.RepID' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?>">Rep ID <?= $rec_sort_column === 's.RepID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.imgName&rec_sort_dir=<?= $rec_sort_column === 'w.imgName' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?>">Recording Name <?= $rec_sort_column === 'w.imgName' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.date&rec_sort_dir=<?= $rec_sort_column === 'w.date' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?>">Date <?= $rec_sort_column === 'w.date' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.time&rec_sort_dir=<?= $rec_sort_column === 'w.time' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?>">Time <?= $rec_sort_column === 'w.time' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.status&rec_sort_dir=<?= $rec_sort_column === 'w.status' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?>">Status <?= $rec_sort_column === 'w.status' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -941,8 +970,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                         </td>
                                         <td class="recording-actions">
                                             <?php if ($recording['status'] === 'uploaded'): ?>
-                                                <!-- View button would link to the actual recording if stored on server -->
-                                                <button class="view-btn" disabled>View</button>
+                                                <a href="./admin_view.php?file=<?php echo urlencode($recording['imgName']); ?>" target="_blank" class="view-btn">View</a>
                                                 <a href="./admin_download.php?file=<?php echo urlencode($recording['imgName']); ?>" class="download-btn">Download</a>
                                             <?php else: ?>
                                                 <!-- For local fallback recordings, we could provide a download link if path is known -->
@@ -958,22 +986,22 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <!-- Pagination -->
                         <div class="pagination">
                             <?php if ($rec_page > 1): ?>
-                                <a href="?page=recordings&recordings_page=<?= $rec_page - 1 ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?>">&laquo; Previous</a>
+                                <a href="?page=recordings&recordings_page=<?= $rec_page - 1 ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?>">&laquo; Previous</a>
                             <?php endif; ?>
 
                             <?php for ($i = max(1, $rec_page - 2); $i <= min($rec_total_pages, $rec_page + 2); $i++): ?>
-                                <a href="?page=recordings&recordings_page=<?= $i ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?>"
+                                <a href="?page=recordings&recordings_page=<?= $i ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?>"
                                    class="<?= $i == $rec_page ? 'active' : '' ?>">
                                     <?= $i ?>
                                 </a>
                             <?php endfor; ?>
 
                             <?php if ($rec_page < $rec_total_pages): ?>
-                                <a href="?page=recordings&recordings_page=<?= $rec_page + 1 ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?>">Next &raquo;</a>
+                                <a href="?page=recordings&recordings_page=<?= $rec_page + 1 ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?>">Next &raquo;</a>
                             <?php endif; ?>
                         </div>
                     <?php else: ?>
-                        <div class="no-data">No recordings found in the last 7 days</div>
+                        <div class="no-data">No recordings found</div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -1302,6 +1330,34 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
             if (sortDir) {
                 url += `all_users_sort_dir=${sortDir}&`;
+            }
+
+            // Remove trailing '&'
+            if (url.endsWith('&')) {
+                url = url.slice(0, -1);
+            }
+
+            window.location.href = url;
+        }
+
+        function filterRecordings() {
+            const startDate = document.getElementById('rec_start_date').value;
+            const endDate = document.getElementById('rec_end_date').value;
+            const sortCol = '<?= $rec_sort_column ?>';
+            const sortDir = '<?= $rec_sort_direction ?>';
+
+            let url = '?page=recordings&';
+            if (startDate) {
+                url += `rec_start_date=${startDate}&`;
+            }
+            if (endDate) {
+                url += `rec_end_date=${endDate}&`;
+            }
+            if (sortCol) {
+                url += `rec_sort_col=${sortCol}&`;
+            }
+            if (sortDir) {
+                url += `rec_sort_dir=${sortDir}&`;
             }
 
             // Remove trailing '&'
