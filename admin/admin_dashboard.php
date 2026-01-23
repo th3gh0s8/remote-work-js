@@ -816,17 +816,18 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         .dropdown-content {
             display: none;
-            position: fixed;
+            position: absolute;
             background-color: white;
             min-width: 200px;
             box-shadow: 0px 8px 16px rgba(0,0,0,0.2);
-            z-index: 10000;
+            z-index: 1000;
             max-height: 200px;
             overflow-y: auto;
             border: 1px solid #ddd;
             border-radius: 5px;
-            left: auto;
-            right: auto;
+            top: 100%;
+            left: 0;
+            margin-top: 2px;
         }
 
         .dropdown-content .user-option {
@@ -1471,23 +1472,8 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
 
         function toggleUserDropdown() {
-            const input = document.getElementById('rec_user_filter_input');
             const dropdown = document.getElementById('user-dropdown');
-
-            // Toggle display
-            const isVisible = dropdown.style.display === 'block';
-            dropdown.style.display = isVisible ? 'none' : 'block';
-
-            if (!isVisible) {
-                // Calculate position relative to the input element
-                const rect = input.getBoundingClientRect();
-                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-
-                dropdown.style.top = (rect.bottom + scrollTop + 5) + 'px'; // 5px gap below input
-                dropdown.style.left = (rect.left + scrollLeft) + 'px';
-                dropdown.style.minWidth = rect.width + 'px'; // Match input width
-            }
+            dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
         }
 
         function selectUser(userId, repId, name) {
@@ -1533,17 +1519,6 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 } else {
                     options[i].style.display = 'none';
                 }
-            }
-
-            // Re-position the dropdown after filtering
-            if (div.style.display === 'block') {
-                const rect = input.getBoundingClientRect();
-                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-
-                div.style.top = (rect.bottom + scrollTop + 5) + 'px'; // 5px gap below input
-                div.style.left = (rect.left + scrollLeft) + 'px';
-                div.style.minWidth = rect.width + 'px'; // Match input width
             }
         }
 
