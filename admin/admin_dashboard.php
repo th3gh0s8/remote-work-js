@@ -816,17 +816,17 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         .dropdown-content {
             display: none;
-            position: absolute;
+            position: fixed;
             background-color: white;
             min-width: 200px;
             box-shadow: 0px 8px 16px rgba(0,0,0,0.2);
-            z-index: 1000;
+            z-index: 10000;
             max-height: 200px;
             overflow-y: auto;
             border: 1px solid #ddd;
             border-radius: 5px;
-            top: calc(100% + 5px); /* Position below the input with slight gap */
-            left: 0;
+            left: auto;
+            right: auto;
         }
 
         .dropdown-content .user-option {
@@ -971,7 +971,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <h2><span class="icon">📹</span> All Recordings</h2>
                 </div>
                 <div class="filters">
-                    <div class="filter-item">
+                    <div class="filter-item" style="position: relative; display: inline-block;">
                         <label for="rec_user_filter">User (Rep ID):</label>
                         <input type="text" id="rec_user_filter_input" placeholder="Search by Rep ID or Name"
                                value="<?php
@@ -989,7 +989,8 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                onclick="toggleUserDropdown()"
                                onkeyup="filterUserOptions()" />
                         <div id="user-dropdown" class="dropdown-content">
-                            <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold;" onclick="clearUserSelection()">All Users</div>
+                            <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold; border-bottom: 1px solid #ddd;" onclick="selectAllUsers()">Select All Users</div>
+                            <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold;" onclick="clearUserSelection()">Clear Selection</div>
                             <?php
                             // Fetch all users for the filter dropdown
                             $user_filter_stmt = $pdo->query("SELECT ID, Name, RepID FROM salesrep WHERE Actives = 'YES' ORDER BY RepID");
@@ -1455,9 +1456,38 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             window.location.href = url;
         }
 
+        function selectAllUsers() {
+            const input = document.getElementById('rec_user_filter_input');
+            const hiddenInput = document.getElementById('rec_user_filter');
+
+            input.value = 'All Users Selected';
+            hiddenInput.value = ''; // Empty value means no specific user filter
+
+            // Close the dropdown
+            document.getElementById('user-dropdown').style.display = 'none';
+
+            // Trigger the filter function
+            filterRecordings();
+        }
+
         function toggleUserDropdown() {
+            const input = document.getElementById('rec_user_filter_input');
             const dropdown = document.getElementById('user-dropdown');
-            dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+
+            // Toggle display
+            const isVisible = dropdown.style.display === 'block';
+            dropdown.style.display = isVisible ? 'none' : 'block';
+
+            if (!isVisible) {
+                // Calculate position relative to the input element
+                const rect = input.getBoundingClientRect();
+                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+
+                dropdown.style.top = (rect.bottom + scrollTop + 5) + 'px'; // 5px gap below input
+                dropdown.style.left = (rect.left + scrollLeft) + 'px';
+                dropdown.style.minWidth = rect.width + 'px'; // Match input width
+            }
         }
 
         function selectUser(userId, repId, name) {
@@ -1503,6 +1533,17 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 } else {
                     options[i].style.display = 'none';
                 }
+            }
+
+            // Re-position the dropdown after filtering
+            if (div.style.display === 'block') {
+                const rect = input.getBoundingClientRect();
+                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+
+                div.style.top = (rect.bottom + scrollTop + 5) + 'px'; // 5px gap below input
+                div.style.left = (rect.left + scrollLeft) + 'px';
+                div.style.minWidth = rect.width + 'px'; // Match input width
             }
         }
 
