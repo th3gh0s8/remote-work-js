@@ -61,8 +61,24 @@ function createTrayMenu(isLoggedIn) {
   if (isLoggedIn) {
     menuItems.push(
       {
-        label: 'Login',
+        label: 'Switch Account',
         click: async () => {
+          // Notify renderer to reset all states before logging out
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('reset-all-states-before-logout');
+            // Wait a brief moment for the renderer to process the reset command
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+
+          // Log logout activity
+          if (loggedInUser) {
+            await logUserActivity('logout');
+          }
+
+          // Clear the logged in user and all session data
+          loggedInUser = null;
+          await sessionManager.clearAllSessionData();
+
           // Update tray tooltip to indicate logged out status
           if (tray) {
             tray.setToolTip('XPloyee - Logged Out');
@@ -71,13 +87,8 @@ function createTrayMenu(isLoggedIn) {
           // Update the tray menu to reflect logged out state
           updateTrayMenu();
 
-          // If there's a main window, close it first
+          // Close main window and show login window
           if (mainWindow && !mainWindow.isDestroyed()) {
-            // Notify renderer to reset all states
-            mainWindow.webContents.send('reset-all-states-before-logout');
-            // Wait a brief moment for the renderer to process the reset command
-            await new Promise(resolve => setTimeout(resolve, 500));
-
             mainWindow.close();
           }
 
@@ -176,6 +187,77 @@ function updateTrayMenu() {
 }
 
 /**
+ * Sets up tray event handlers based on the current login state
+ */
+function setupTrayEventHandlers() {
+  if (!tray) return;
+
+  // Remove any existing tray event listeners to prevent duplicates
+  tray.removeAllListeners('click');
+  tray.removeAllListeners('double-click');
+
+  // Handle tray icon single click (toggle behavior)
+  tray.on('click', () => {
+    if (loggedInUser) {
+      // User is logged in, toggle main window
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isVisible()) {
+          mainWindow.hide();
+        } else {
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+          }
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      }
+    } else {
+      // User is not logged in, toggle login window
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        if (loginWindow.isVisible()) {
+          loginWindow.hide();
+        } else {
+          if (loginWindow.isMinimized()) {
+            loginWindow.restore();
+          }
+          loginWindow.show();
+          loginWindow.focus();
+        }
+      } else {
+        // Login window doesn't exist, create it
+        createLoginWindow();
+      }
+    }
+  });
+
+  // Handle tray icon double click (always show)
+  tray.on('double-click', () => {
+    if (loggedInUser) {
+      // User is logged in, show main window
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) {
+          mainWindow.restore();
+        }
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    } else {
+      // User is not logged in, show login window
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        if (loginWindow.isMinimized()) {
+          loginWindow.restore();
+        }
+        loginWindow.show();
+        loginWindow.focus();
+      } else {
+        // Login window doesn't exist, create it
+        createLoginWindow();
+      }
+    }
+  });
+}
+
+/**
  * Creates the main application BrowserWindow configured for screen capture and loads the renderer.
  *
  * Sets up a BrowserWindow with Node integration and permissive media settings, configures session
@@ -213,22 +295,16 @@ function createWindow() {
 
   // Enable media access for screen capture
   mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    if (permission === 'media' || permission === 'desktop-capture') {
-      callback(true); // Grant media and desktop capture access
+    if (permission === 'media' || permission === 'desktop-capture' || permission === 'display-capture') {
+      callback(true); // Grant media, desktop capture, and display capture access
     } else {
       callback(false); // Deny other permissions
     }
   });
 
   // Additional configuration for screen capture compatibility
-  mainWindow.webContents.session.on('select-desktop-capture-source', (event, sources, callback) => {
-    // Automatically select the first available source
-    if (sources && sources.length > 0) {
-      callback(sources[0].id);
-    } else {
-      callback('');
-    }
-  });
+  // Note: select-desktop-capture-source is deprecated in newer Electron versions
+  // The source selection is now handled in the renderer process
 
   mainWindow.loadFile('index.html');
 
@@ -342,74 +418,8 @@ app.whenReady().then(async () => {
     updateTrayMenu();
     tray.setTitle('XPloyee');
 
-    // Track click timing for double-click detection
-    let lastClickTime = 0;
-
-    // Handle tray icon click (single vs double click)
-    tray.on('click', (event, bounds, position) => {
-      const now = Date.now();
-      const isDoubleClick = (now - lastClickTime) < 300; // 300ms threshold for double-click
-
-      if (isDoubleClick) {
-        // Handle double-click
-        if (loggedInUser) {
-          // User is logged in, show main window
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            if (mainWindow.isMinimized()) {
-              mainWindow.restore();
-            }
-            mainWindow.show();
-            mainWindow.focus();
-          }
-        } else {
-          // User is not logged in, show login window
-          if (loginWindow && !loginWindow.isDestroyed()) {
-            if (loginWindow.isMinimized()) {
-              loginWindow.restore();
-            }
-            loginWindow.show();
-            loginWindow.focus();
-          } else {
-            // Login window doesn't exist, create it
-            createLoginWindow();
-          }
-        }
-        lastClickTime = 0; // Reset to prevent triple-click from triggering
-      } else {
-        // Handle single-click (toggle behavior)
-        if (loggedInUser) {
-          // User is logged in, toggle main window
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            if (mainWindow.isVisible()) {
-              mainWindow.hide();
-            } else {
-              if (mainWindow.isMinimized()) {
-                mainWindow.restore();
-              }
-              mainWindow.show();
-              mainWindow.focus();
-            }
-          }
-        } else {
-          // User is not logged in, toggle login window
-          if (loginWindow && !loginWindow.isDestroyed()) {
-            if (loginWindow.isVisible()) {
-              loginWindow.hide();
-            } else {
-              if (loginWindow.isMinimized()) {
-                loginWindow.restore();
-              }
-              loginWindow.show();
-              loginWindow.focus();
-            }
-          } else {
-            // Login window doesn't exist, create it
-            createLoginWindow();
-          }
-        }
-        lastClickTime = now;
-      }
-    });
+    // Set up tray event handlers for the logged-in state
+    setupTrayEventHandlers();
 
     // Flag to determine if we're quitting the app or just closing the window
     let isQuitting = false;
@@ -456,6 +466,9 @@ app.whenReady().then(async () => {
 
     // Update the tray menu to reflect logged out state
     updateTrayMenu();
+
+    // Set up tray event listeners for the logged-out state
+    setupTrayEventHandlers();
 
     await createLoginWindow();
   }
@@ -600,74 +613,8 @@ ipcMain.handle('login-success', async (event, user) => {
   updateTrayMenu();
   tray.setTitle('XPloyee');
 
-  // Track click timing for double-click detection
-  let lastClickTime2 = 0;
-
-  // Handle tray icon click (single vs double click)
-  tray.on('click', (event, bounds, position) => {
-    const now = Date.now();
-    const isDoubleClick = (now - lastClickTime2) < 300; // 300ms threshold for double-click
-
-    if (isDoubleClick) {
-      // Handle double-click
-      if (loggedInUser) {
-        // User is logged in, show main window
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          if (mainWindow.isMinimized()) {
-            mainWindow.restore();
-          }
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      } else {
-        // User is not logged in, show login window
-        if (loginWindow && !loginWindow.isDestroyed()) {
-          if (loginWindow.isMinimized()) {
-            loginWindow.restore();
-          }
-          loginWindow.show();
-          loginWindow.focus();
-        } else {
-          // Login window doesn't exist, create it
-          createLoginWindow();
-        }
-      }
-      lastClickTime2 = 0; // Reset to prevent triple-click from triggering
-    } else {
-      // Handle single-click (toggle behavior)
-      if (loggedInUser) {
-        // User is logged in, toggle main window
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          if (mainWindow.isVisible()) {
-            mainWindow.hide();
-          } else {
-            if (mainWindow.isMinimized()) {
-              mainWindow.restore();
-            }
-            mainWindow.show();
-            mainWindow.focus();
-          }
-        }
-      } else {
-        // User is not logged in, toggle login window
-        if (loginWindow && !loginWindow.isDestroyed()) {
-          if (loginWindow.isVisible()) {
-            loginWindow.hide();
-          } else {
-            if (loginWindow.isMinimized()) {
-              loginWindow.restore();
-            }
-            loginWindow.show();
-            loginWindow.focus();
-          }
-        } else {
-          // Login window doesn't exist, create it
-          createLoginWindow();
-        }
-      }
-      lastClickTime2 = now;
-    }
-  });
+  // Set up tray event handlers for the logged-in state
+  setupTrayEventHandlers();
 
   // Flag to determine if we're quitting the app or just closing the window
   let isQuitting = false;
@@ -719,17 +666,6 @@ ipcMain.handle('login-success', async (event, user) => {
     if (tray) {
       tray.destroy();
     }
-  });
-
-  // Handle window close to preserve session unless explicitly logging out
-  app.on('window-all-closed', () => {
-    // Keep the app running in background on all platforms, not just macOS
-    // This allows the app to stay active in the system tray
-    if (process.platform === 'darwin') {
-      return;
-    }
-    // Don't quit the app when window is closed - keep it running in background
-    // This preserves the session for next startup
   });
 
   // Handle window visibility changes to notify renderer

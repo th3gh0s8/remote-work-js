@@ -41,13 +41,9 @@ function createWindow(): void {
       nodeIntegration: true,
       contextIsolation: false,
       // Enable screen capture permissions
-      autoplayPolicy: 'no-user-gesture-required',
-      webSecurity: false // Allow mixed content for screen capture
+      autoplayPolicy: 'no-user-gesture-required' as any // Cast to any to bypass TypeScript check
     },
-    icon: path.join(__dirname, 'assets/icon.png'), // Optional: Add an icon
-    // Enable screen capture
-    alwaysOnTop: false,
-    fullscreenable: true
+    icon: path.join(__dirname, '..', 'assets', 'icon.png') // Optional: Add an icon
   });
 
   // Configure session to allow screen capture
@@ -77,6 +73,11 @@ function createWindow(): void {
 
   // Release reference so the window can be garbage collected
   mainWindow.on('closed', () => {
+    // Clear network monitoring interval when window is closed
+    if (networkUsageInterval) {
+      clearInterval(networkUsageInterval);
+      networkUsageInterval = null;
+    }
     mainWindow = null;
   });
 }
@@ -86,12 +87,12 @@ function createWindow(): void {
  * Creates and manages the system tray icon and menu
  */
 function setupTray(): void {
-  // Create tray icon
-  const iconPath = path.join(__dirname, 'assets/logo.jpg');
+  // Create tray icon - look for assets in the parent directory since compiled JS is in dist/
+  const iconPath = path.join(__dirname, '..', 'assets', 'logo.jpg');
   const iconImage = nativeImage.createFromPath(iconPath);
 
   // If icon doesn't exist, use a default icon
-  tray = new Tray(iconImage.isEmpty() ? nativeImage.createEmpty() : iconImage);
+  tray = new Tray(iconImage.isEmpty() ? path.join(__dirname, '..', 'assets', 'icon.png') : iconPath);
 
   // Update tray tooltip based on login status
   if (loggedInUser) {
@@ -140,26 +141,41 @@ function setupTray(): void {
     }
   });
 
-  // Handle tray icon double click (always show)
+  // Handle tray icon double click (toggle visibility)
   tray.removeAllListeners('double-click'); // Remove any existing listeners to prevent duplicates
   tray.on('double-click', () => {
     if (loggedInUser) {
-      // User is logged in, show main window
+      // User is logged in, toggle main window visibility
       if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isMinimized()) {
-          mainWindow.restore();
+        if (mainWindow.isVisible()) {
+          // Window is visible, hide it (minimize to tray)
+          mainWindow.hide();
+        } else {
+          // Window is hidden, show it
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+          }
+          mainWindow.show();
+          mainWindow.focus();
         }
-        mainWindow.show();
-        mainWindow.focus();
+      } else {
+        // Main window doesn't exist, create it
+        createWindow();
       }
     } else {
-      // User is not logged in, show login window
+      // User is not logged in, toggle login window visibility
       if (loginWindow && !loginWindow.isDestroyed()) {
-        if (loginWindow.isMinimized()) {
-          loginWindow.restore();
+        if (loginWindow.isVisible()) {
+          // Window is visible, hide it
+          loginWindow.hide();
+        } else {
+          // Window is hidden, show it
+          if (loginWindow.isMinimized()) {
+            loginWindow.restore();
+          }
+          loginWindow.show();
+          loginWindow.focus();
         }
-        loginWindow.show();
-        loginWindow.focus();
       } else {
         // Login window doesn't exist, create it
         createLoginWindow();
@@ -198,17 +214,40 @@ function createTrayMenu(isLoggedIn: boolean): Array<Electron.MenuItemConstructor
       label: 'Show App',
       click: () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          if (mainWindow.isMinimized()) {
-            mainWindow.restore();
+          // Main window exists - toggle visibility
+          if (mainWindow.isVisible()) {
+            // Window is visible, hide it (minimize to tray)
+            mainWindow.hide();
+          } else {
+            // Window is hidden, show it
+            if (mainWindow.isMinimized()) {
+              mainWindow.restore();
+            }
+            mainWindow.show();
+            mainWindow.focus();
           }
-          mainWindow.show();
-          mainWindow.focus();
         } else if (loginWindow && !loginWindow.isDestroyed()) {
-          if (loginWindow.isMinimized()) {
-            loginWindow.restore();
+          // Login window exists - toggle visibility
+          if (loginWindow.isVisible()) {
+            // Window is visible, hide it
+            loginWindow.hide();
+          } else {
+            // Window is hidden, show it
+            if (loginWindow.isMinimized()) {
+              loginWindow.restore();
+            }
+            loginWindow.show();
+            loginWindow.focus();
           }
-          loginWindow.show();
-          loginWindow.focus();
+        } else {
+          // Neither window exists, recreate the appropriate window
+          if (loggedInUser) {
+            // User is logged in, create main window
+            createWindow();
+          } else {
+            // User is not logged in, create login window
+            createLoginWindow();
+          }
         }
       }
     }
@@ -539,25 +578,40 @@ ipcMain.handle('login-success', async (event, user: any) => {
     }
   });
   
-  // Handle tray icon double click (always show)
+  // Handle tray icon double click (toggle visibility)
   tray!.on('double-click', () => {
     if (loggedInUser) {
-      // User is logged in, show main window
+      // User is logged in, toggle main window visibility
       if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isMinimized()) {
-          mainWindow.restore();
+        if (mainWindow.isVisible()) {
+          // Window is visible, hide it (minimize to tray)
+          mainWindow.hide();
+        } else {
+          // Window is hidden, show it
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+          }
+          mainWindow.show();
+          mainWindow.focus();
         }
-        mainWindow.show();
-        mainWindow.focus();
+      } else {
+        // Main window doesn't exist, create it
+        createWindow();
       }
     } else {
-      // User is not logged in, show login window
+      // User is not logged in, toggle login window visibility
       if (loginWindow && !loginWindow.isDestroyed()) {
-        if (loginWindow.isMinimized()) {
-          loginWindow.restore();
+        if (loginWindow.isVisible()) {
+          // Window is visible, hide it
+          loginWindow.hide();
+        } else {
+          // Window is hidden, show it
+          if (loginWindow.isMinimized()) {
+            loginWindow.restore();
+          }
+          loginWindow.show();
+          loginWindow.focus();
         }
-        loginWindow.show();
-        loginWindow.focus();
       } else {
         // Login window doesn't exist, create it
         createLoginWindow();
@@ -598,16 +652,22 @@ ipcMain.handle('login-success', async (event, user: any) => {
       // Wait a brief moment for the renderer to process the stop command
       await new Promise(resolve => setTimeout(resolve, 500));
     }
-    
+
+    // Clear network monitoring interval when quitting
+    if (networkUsageInterval) {
+      clearInterval(networkUsageInterval);
+      networkUsageInterval = null;
+    }
+
     if (loggedInUser) {
       await logUserActivity('logout');
     }
-    
+
     // Update tray tooltip if app is quitting
     if (tray) {
       tray.setToolTip('XPloyee - App Closed');
     }
-    
+
     // Update the tray menu to reflect the closed state
     updateTrayMenu();
 
@@ -1047,10 +1107,17 @@ function startNetworkMonitoring() {
 
   // Update network usage every second
   networkUsageInterval = setInterval(async () => {
-    if (mainWindow) {
-      // Send network usage to renderer
-      const networkData = await getNetworkUsage();
-      mainWindow.webContents.send('network-usage-update', networkData);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        // Send network usage to renderer
+        const networkData = await getNetworkUsage();
+        // Double-check that mainWindow still exists before sending
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('network-usage-update', networkData);
+        }
+      } catch (error) {
+        console.error('Error sending network usage update:', error);
+      }
     }
   }, 1000);
 }
@@ -1132,12 +1199,18 @@ app.on('window-all-closed', async () => {
   }
   // Don't quit the app when window is closed - keep it running in background
   // But ensure any ongoing recording is properly handled
-  
+
   // Notify renderer to stop any ongoing recording
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('stop-recording-before-logout');
     // Wait a bit for the renderer to process the event
     await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  // Clear network monitoring interval when all windows are closed
+  if (networkUsageInterval) {
+    clearInterval(networkUsageInterval);
+    networkUsageInterval = null;
   }
 });
 

@@ -13,6 +13,7 @@ interface SessionData {
 class SessionManager {
   private sessionDir: string;
   private sessionFile: string;
+  private readonly sessionFileName = 'session.json';
 
   constructor() {
     // Create a secure location for session data
