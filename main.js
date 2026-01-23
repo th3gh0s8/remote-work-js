@@ -14,7 +14,168 @@ let networkUsageInterval = null;
 let mainWindow;
 let loginWindow = null;
 const db = new DatabaseConnection();
-let sessionManager; /**
+let sessionManager;
+
+/**
+ * Creates the tray context menu based on the current login state
+ */
+function createTrayMenu(isLoggedIn) {
+  const menuItems = [
+    {
+      label: 'Show App',
+      click: () => {
+        if (isLoggedIn) {
+          // User is logged in, toggle main window
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow.isVisible()) {
+              mainWindow.hide();
+            } else {
+              if (mainWindow.isMinimized()) {
+                mainWindow.restore();
+              }
+              mainWindow.show();
+              mainWindow.focus();
+            }
+          }
+        } else {
+          // User is not logged in, toggle login window
+          if (loginWindow && !loginWindow.isDestroyed()) {
+            if (loginWindow.isVisible()) {
+              loginWindow.hide();
+            } else {
+              if (loginWindow.isMinimized()) {
+                loginWindow.restore();
+              }
+              loginWindow.show();
+              loginWindow.focus();
+            }
+          } else {
+            // Login window doesn't exist, create it
+            createLoginWindow();
+          }
+        }
+      }
+    }
+  ];
+
+  if (isLoggedIn) {
+    menuItems.push(
+      {
+        label: 'Login',
+        click: async () => {
+          // Update tray tooltip to indicate logged out status
+          if (tray) {
+            tray.setToolTip('XPloyee - Logged Out');
+          }
+
+          // Update the tray menu to reflect logged out state
+          updateTrayMenu();
+
+          // If there's a main window, close it first
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            // Notify renderer to reset all states
+            mainWindow.webContents.send('reset-all-states-before-logout');
+            // Wait a brief moment for the renderer to process the reset command
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            mainWindow.close();
+          }
+
+          await createLoginWindow();
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Logout',
+        click: async () => {
+          // Notify renderer to reset all states before logging out
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('reset-all-states-before-logout');
+            // Wait a brief moment for the renderer to process the reset command
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+
+          // Log logout activity
+          if (loggedInUser) {
+            await logUserActivity('logout');
+          }
+
+          // Clear the logged in user and all session data
+          loggedInUser = null;
+          await sessionManager.clearAllSessionData();
+
+          // Update tray tooltip to indicate logged out status
+          if (tray) {
+            tray.setToolTip('XPloyee - Logged Out');
+          }
+
+          // Update the tray menu to reflect logged out state
+          updateTrayMenu();
+
+          // Close main window and show login window
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.close();
+          }
+
+          await createLoginWindow();
+        }
+      }
+    );
+  } else {
+    menuItems.push(
+      {
+        label: 'Login',
+        click: async () => {
+          // Update tray tooltip to indicate logged out status
+          if (tray) {
+            tray.setToolTip('XPloyee - Logged Out');
+          }
+
+          // Update the tray menu to reflect logged out state
+          updateTrayMenu();
+
+          // If there's a main window, close it first
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            // Notify renderer to reset all states
+            mainWindow.webContents.send('reset-all-states-before-logout');
+            // Wait a brief moment for the renderer to process the reset command
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            mainWindow.close();
+          }
+
+          await createLoginWindow();
+        }
+      }
+    );
+  }
+
+  menuItems.push(
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        // Force quit the application
+        app.quit();
+      }
+    }
+  );
+
+  return Menu.buildFromTemplate(menuItems);
+}
+
+/**
+ * Updates the tray menu based on the current login state
+ */
+function updateTrayMenu() {
+  if (tray) {
+    const isLoggedIn = !!loggedInUser;
+    const contextMenu = createTrayMenu(isLoggedIn);
+    tray.setContextMenu(contextMenu);
+  }
+}
+
+/**
  * Creates the main application BrowserWindow configured for screen capture and loads the renderer.
  *
  * Sets up a BrowserWindow with Node integration and permissive media settings, configures session
@@ -89,7 +250,20 @@ let tray = null;
  * The window is configured for the application's login UI, loads "login.html",
  * and clears the module-level `loginWindow` reference when closed.
  */
-function createLoginWindow() {
+async function createLoginWindow() {
+  // Check if login window already exists and is open
+  if (loginWindow && !loginWindow.isDestroyed()) {
+    // If login window exists, just bring it to focus
+    if (loginWindow.isMinimized()) {
+      loginWindow.restore();
+    }
+    loginWindow.focus();
+    return;
+  }
+
+  // Clear all session data when showing login window
+  await sessionManager.clearAllSessionData();
+
   loginWindow = new BrowserWindow({
     width: 450,
     height: 600,
@@ -123,6 +297,19 @@ app.whenReady().then(async () => {
     // You might want to show an error message to the user here
   }
 
+  // Create tray icon early so it's available even before login
+  const iconPath = path.join(__dirname, 'assets/logo.jpg');
+  const iconImage = nativeImage.createFromPath(iconPath);
+
+  // If icon doesn't exist, use a default icon
+  tray = new Tray(iconImage.isEmpty() ? null : iconImage);
+
+  // Set initial tooltip
+  tray.setToolTip('XPloyee - Starting...');
+
+  // Update the tray menu to reflect initial state (logged out)
+  updateTrayMenu();
+
   // Check if there's a valid session stored
   const savedSession = await sessionManager.loadSession();
 
@@ -148,66 +335,79 @@ app.whenReady().then(async () => {
     // Store mainWindow globally so database operations can send network usage updates
     global.mainWindow = mainWindow;
 
-    // Create tray icon
-    const iconPath = path.join(__dirname, 'assets/logo.jpg');
-    const iconImage = nativeImage.createFromPath(iconPath);
+    // Update tray tooltip to indicate logged in status
+    tray.setToolTip(`XPloyee - Logged In as ${savedSession.Name || savedSession.RepID}`);
 
-    // If icon doesn't exist, use a default icon
-    tray = new Tray(iconImage.isEmpty() ? null : iconImage);
+    // Update the tray menu to reflect logged in state
+    updateTrayMenu();
+    tray.setTitle('XPloyee');
 
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: 'Show App',
-        click: () => {
+    // Track click timing for double-click detection
+    let lastClickTime = 0;
+
+    // Handle tray icon click (single vs double click)
+    tray.on('click', (event, bounds, position) => {
+      const now = Date.now();
+      const isDoubleClick = (now - lastClickTime) < 300; // 300ms threshold for double-click
+
+      if (isDoubleClick) {
+        // Handle double-click
+        if (loggedInUser) {
+          // User is logged in, show main window
           if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow.isMinimized()) {
+              mainWindow.restore();
+            }
             mainWindow.show();
             mainWindow.focus();
           }
-        }
-      },
-      { type: 'separator' },
-      {
-        label: 'Logout',
-        click: async () => {
-          // Clear the saved session
-          await sessionManager.clearSession();
-
-          // Log logout activity
-          if (loggedInUser) {
-            await logUserActivity('logout');
-          }
-
-          // Close main window and show login window
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.close();
-          }
-
-          createLoginWindow();
-        }
-      },
-      { type: 'separator' },
-      {
-        label: 'Quit',
-        click: () => {
-          // Force quit the application
-          app.quit();
-        }
-      }
-    ]);
-
-    tray.setContextMenu(contextMenu);
-    tray.setToolTip('XPloyee');
-    tray.setTitle('XPloyee');
-
-    // Show window when tray icon is clicked
-    tray.on('click', () => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isVisible()) {
-          mainWindow.hide();
         } else {
-          mainWindow.show();
-          mainWindow.focus();
+          // User is not logged in, show login window
+          if (loginWindow && !loginWindow.isDestroyed()) {
+            if (loginWindow.isMinimized()) {
+              loginWindow.restore();
+            }
+            loginWindow.show();
+            loginWindow.focus();
+          } else {
+            // Login window doesn't exist, create it
+            createLoginWindow();
+          }
         }
+        lastClickTime = 0; // Reset to prevent triple-click from triggering
+      } else {
+        // Handle single-click (toggle behavior)
+        if (loggedInUser) {
+          // User is logged in, toggle main window
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow.isVisible()) {
+              mainWindow.hide();
+            } else {
+              if (mainWindow.isMinimized()) {
+                mainWindow.restore();
+              }
+              mainWindow.show();
+              mainWindow.focus();
+            }
+          }
+        } else {
+          // User is not logged in, toggle login window
+          if (loginWindow && !loginWindow.isDestroyed()) {
+            if (loginWindow.isVisible()) {
+              loginWindow.hide();
+            } else {
+              if (loginWindow.isMinimized()) {
+                loginWindow.restore();
+              }
+              loginWindow.show();
+              loginWindow.focus();
+            }
+          } else {
+            // Login window doesn't exist, create it
+            createLoginWindow();
+          }
+        }
+        lastClickTime = now;
       }
     });
 
@@ -237,7 +437,13 @@ app.whenReady().then(async () => {
 
     // Handle window visibility changes to notify renderer
     mainWindow.on('show', () => {
+      // Send current state to renderer when window is shown
       mainWindow.webContents.send('window-shown');
+
+      // If user is not logged in, send a reset state message
+      if (!loggedInUser) {
+        mainWindow.webContents.send('reset-all-states-before-logout');
+      }
     });
 
     mainWindow.on('hide', () => {
@@ -245,7 +451,13 @@ app.whenReady().then(async () => {
     });
   } else {
     // No valid session, show login window first
-    createLoginWindow();
+    // Update tray tooltip to indicate logged out status
+    tray.setToolTip('XPloyee - Logged Out');
+
+    // Update the tray menu to reflect logged out state
+    updateTrayMenu();
+
+    await createLoginWindow();
   }
 });
 
@@ -311,20 +523,36 @@ async function logUserActivity(activityType, duration = 0) {
 // Handle logout request from renderer - moved outside login-success to prevent duplicate registration
 ipcMain.handle('logout-request', async (event) => {
   try {
-    // Clear the saved session
-    await sessionManager.clearSession();
+    // Notify renderer to reset all states before logging out
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('reset-all-states-before-logout');
+      // Wait a brief moment for the renderer to process the reset command
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
 
     // Log logout activity
     if (loggedInUser) {
       await logUserActivity('logout');
     }
 
+    // Clear the logged in user and all session data
+    loggedInUser = null;
+    await sessionManager.clearAllSessionData();
+
+    // Update tray tooltip to indicate logged out status
+    if (tray) {
+      tray.setToolTip('XPloyee - Logged Out');
+    }
+
+    // Update the tray menu to reflect logged out state
+    updateTrayMenu();
+
     // Close main window and show login window
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.close();
     }
 
-    createLoginWindow();
+    await createLoginWindow();
 
     return { success: true };
   } catch (error) {
@@ -363,66 +591,81 @@ ipcMain.handle('login-success', async (event, user) => {
   // Store mainWindow globally so database operations can send network usage updates
   global.mainWindow = mainWindow;
 
-  // Create tray icon
-  const iconPath = path.join(__dirname, 'assets/logo.jpg');
-  const iconImage = nativeImage.createFromPath(iconPath);
+  // Update tray tooltip to indicate logged in status
+  if (tray) {
+    tray.setToolTip(`XPloyee - Logged In as ${user.Name || user.RepID}`);
+  }
 
-  // If icon doesn't exist, use a default icon
-  tray = new Tray(iconImage.isEmpty() ? null : iconImage);
+  // Update the tray menu to reflect logged in state
+  updateTrayMenu();
+  tray.setTitle('XPloyee');
 
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Show App',
-      click: () => {
+  // Track click timing for double-click detection
+  let lastClickTime2 = 0;
+
+  // Handle tray icon click (single vs double click)
+  tray.on('click', (event, bounds, position) => {
+    const now = Date.now();
+    const isDoubleClick = (now - lastClickTime2) < 300; // 300ms threshold for double-click
+
+    if (isDoubleClick) {
+      // Handle double-click
+      if (loggedInUser) {
+        // User is logged in, show main window
         if (mainWindow && !mainWindow.isDestroyed()) {
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+          }
           mainWindow.show();
           mainWindow.focus();
         }
-      }
-    },
-    { type: 'separator' },
-    {
-      label: 'Logout',
-      click: async () => {
-        // Clear the saved session
-        await sessionManager.clearSession();
-
-        // Log logout activity
-        if (loggedInUser) {
-          await logUserActivity('logout');
-        }
-
-        // Close main window and show login window
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.close();
-        }
-
-        createLoginWindow();
-      }
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => {
-        // Force quit the application
-        app.quit();
-      }
-    }
-  ]);
-
-  tray.setContextMenu(contextMenu);
-  tray.setToolTip('XPloyee');
-  tray.setTitle('XPloyee');
-
-  // Show window when tray icon is clicked
-  tray.on('click', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isVisible()) {
-        mainWindow.hide();
       } else {
-        mainWindow.show();
-        mainWindow.focus();
+        // User is not logged in, show login window
+        if (loginWindow && !loginWindow.isDestroyed()) {
+          if (loginWindow.isMinimized()) {
+            loginWindow.restore();
+          }
+          loginWindow.show();
+          loginWindow.focus();
+        } else {
+          // Login window doesn't exist, create it
+          createLoginWindow();
+        }
       }
+      lastClickTime2 = 0; // Reset to prevent triple-click from triggering
+    } else {
+      // Handle single-click (toggle behavior)
+      if (loggedInUser) {
+        // User is logged in, toggle main window
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          if (mainWindow.isVisible()) {
+            mainWindow.hide();
+          } else {
+            if (mainWindow.isMinimized()) {
+              mainWindow.restore();
+            }
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        }
+      } else {
+        // User is not logged in, toggle login window
+        if (loginWindow && !loginWindow.isDestroyed()) {
+          if (loginWindow.isVisible()) {
+            loginWindow.hide();
+          } else {
+            if (loginWindow.isMinimized()) {
+              loginWindow.restore();
+            }
+            loginWindow.show();
+            loginWindow.focus();
+          }
+        } else {
+          // Login window doesn't exist, create it
+          createLoginWindow();
+        }
+      }
+      lastClickTime2 = now;
     }
   });
 
@@ -434,19 +677,47 @@ ipcMain.handle('login-success', async (event, user) => {
   });
 
   // Also handle the case when user tries to close the window
-  mainWindow.on('close', (event) => {
+  mainWindow.on('close', async (event) => {
     if (!isQuitting) {
       // Prevent the window from closing, just hide it
       event.preventDefault();
       mainWindow.hide();
+    } else {
+      // If quitting, ensure any ongoing recording is properly handled
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        // Notify renderer to stop any ongoing recording before closing
+        mainWindow.webContents.send('stop-recording-before-logout');
+        // Wait a bit for the renderer to process the event
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      // If isQuitting is true, the window will close normally
     }
-    // If isQuitting is true, the window will close normally
   });
 
-// Handle app quit to log logout activity
+// Handle app quit to log logout activity and stop any ongoing recording
   app.on('quit', async () => {
+    // Stop any ongoing recording before quitting
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('stop-recording-before-logout');
+      // Wait a brief moment for the renderer to process the stop command
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
     if (loggedInUser) {
       await logUserActivity('logout');
+    }
+
+    // Update tray tooltip if app is quitting
+    if (tray) {
+      tray.setToolTip('XPloyee - App Closed');
+    }
+
+    // Update the tray menu to reflect the closed state
+    updateTrayMenu();
+
+    // Destroy tray icon when quitting
+    if (tray) {
+      tray.destroy();
     }
   });
 
@@ -463,7 +734,13 @@ ipcMain.handle('login-success', async (event, user) => {
 
   // Handle window visibility changes to notify renderer
   mainWindow.on('show', () => {
+    // Send current state to renderer when window is shown
     mainWindow.webContents.send('window-shown');
+
+    // If user is not logged in, send a reset state message
+    if (!loggedInUser) {
+      mainWindow.webContents.send('reset-all-states-before-logout');
+    }
   });
 
   mainWindow.on('hide', () => {
@@ -904,13 +1181,21 @@ ipcMain.on('database-operation', (event, data) => {
   totalBytesDownloaded += data.downloadSize || 0;
 });
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
   // Keep the app running in background on all platforms, not just macOS
   // This allows the app to stay active in the system tray
   if (process.platform === 'darwin') {
     return;
   }
   // Don't quit the app when window is closed - keep it running in background
+  // But ensure any ongoing recording is properly handled
+
+  // Notify renderer to stop any ongoing recording
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('stop-recording-before-logout');
+    // Wait a bit for the renderer to process the event
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
 });
 
 app.on('activate', () => {
@@ -926,6 +1211,11 @@ app.on('activate', () => {
         win.show();
       }
       win.focus();
+
+      // If user is not logged in, send a reset state message
+      if (!loggedInUser && win === mainWindow) {
+        win.webContents.send('reset-all-states-before-logout');
+      }
     }
   }
 });

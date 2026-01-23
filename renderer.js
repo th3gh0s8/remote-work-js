@@ -182,17 +182,17 @@ function startNewSegment() {
 
 // Wait for DOM to be fully loaded before accessing elements
 document.addEventListener('DOMContentLoaded', function() {
-  // DOM elements
-  const checkInBtn = document.getElementById('check-in-btn');
-  const breakBtn = document.getElementById('break-btn');
-  const checkOutBtn = document.getElementById('check-out-btn');
-  const logoutBtn = document.getElementById('logout-btn');
-  const statusText = document.getElementById('screenshot-status');
-  const activityBadge = document.getElementById('activity-badge');
-  const downloadSpeedElement = document.getElementById('download-speed');
-  const uploadSpeedElement = document.getElementById('upload-speed');
-  const totalDownloadedElement = document.getElementById('total-downloaded');
-  const totalUploadedElement = document.getElementById('total-uploaded');
+  // DOM elements - make them global so they can be accessed by event handlers
+  window.checkInBtn = document.getElementById('check-in-btn');
+  window.breakBtn = document.getElementById('break-btn');
+  window.checkOutBtn = document.getElementById('check-out-btn');
+  window.logoutBtn = document.getElementById('logout-btn');
+  window.statusText = document.getElementById('screenshot-status');
+  window.activityBadge = document.getElementById('activity-badge');
+  window.downloadSpeedElement = document.getElementById('download-speed');
+  window.uploadSpeedElement = document.getElementById('upload-speed');
+  window.totalDownloadedElement = document.getElementById('total-downloaded');
+  window.totalUploadedElement = document.getElementById('total-uploaded');
 
   // Check if statistics elements already exist to avoid duplicates
   let totalWorkTimeElement = document.getElementById('total-work-time');
@@ -289,7 +289,7 @@ document.addEventListener('DOMContentLoaded', function() {
     currentUser = user;
     console.log('Received user info:', user);
     // Optionally update UI to show logged in user
-    statusText.textContent = `Logged in as: ${user.Name || user.RepID}. Ready to start recording...`;
+    if (window.statusText) window.statusText.textContent = `Logged in as: ${user.Name || user.RepID}. Ready to start recording...`;
   });
 
   // Listen for network usage updates from main process
@@ -505,6 +505,12 @@ document.addEventListener('DOMContentLoaded', function() {
         recordingInterval = null;
       }
 
+      // Clear any ongoing timeouts/intervals
+      if (segmentTimeoutId) {
+        clearTimeout(segmentTimeoutId);
+        segmentTimeoutId = null;
+      }
+
       // Update statistics to show final summary instead of hiding
       if (totalWorkTimeElement && startTime instanceof Date) {
         const totalTimeInMilliseconds = Date.now() - startTime.getTime();
@@ -537,12 +543,14 @@ document.addEventListener('DOMContentLoaded', function() {
       }
 
       // Update UI
-      checkInBtn.style.display = 'inline-block';
-      breakBtn.style.display = 'none';
-      checkOutBtn.style.display = 'none';
-      breakBtn.textContent = 'Break Time';
+      if (window.checkInBtn) window.checkInBtn.style.display = 'inline-block';
+      if (window.breakBtn) {
+        window.breakBtn.style.display = 'none';
+        window.breakBtn.textContent = 'Break Time';
+      }
+      if (window.checkOutBtn) window.checkOutBtn.style.display = 'none';
 
-      if (activityBadge) activityBadge.classList.remove('active');
+      if (window.activityBadge) window.activityBadge.classList.remove('active');
     }
   });
 
@@ -552,7 +560,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const confirmed = confirm('Are you sure you want to logout? Your current session will end.');
     if (confirmed) {
       try {
-        // Send logout request to main process
+        // Send logout request to main process (which will handle all cleanup)
         await ipcRenderer.invoke('logout-request');
         console.log('Logout initiated');
       } catch (error) {
@@ -572,7 +580,11 @@ document.addEventListener('DOMContentLoaded', function() {
  * Relies on global state: `startTime`, `isCheckedIn`, `isOnBreak`, `breakStartTime`, and `totalBreakTime`.
  */
 function updateTimerDisplay() {
-  if (!startTime || !isCheckedIn) return;
+  if (!startTime || !isCheckedIn) {
+    // If not checked in, show appropriate status
+    if (window.statusText) window.statusText.textContent = 'Logged out. Please log in to start recording.';
+    return;
+  }
 
   let currentTime = new Date();
   let elapsed;
@@ -601,10 +613,10 @@ function updateTimerDisplay() {
   const netWorkTime = elapsed;
 
   if (isOnBreak) {
-    statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong><br>
+    if (window.statusText) window.statusText.innerHTML = `On break since <strong>${formatTime(breakStartTime)}</strong><br>
                             Time worked: <strong>${formattedTime}</strong>`;
   } else {
-    statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong><br>
+    if (window.statusText) window.statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong><br>
                             Time worked: <strong>${formattedTime}</strong>`;
   }
 
@@ -783,11 +795,31 @@ async function resumeScreenRecording() {
 }
 
 async function stopScreenRecording() {
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    // Clear any existing timeout to prevent conflicts
+    if (segmentTimeoutId) {
+      clearTimeout(segmentTimeoutId);
+      segmentTimeoutId = null;
+    }
+
+    // Stop the current recording segment
     mediaRecorder.stop();
     console.log('Recording stopped');
+
+    // Wait briefly to ensure the onstop event processes the final segment
+    await new Promise(resolve => setTimeout(resolve, 300));
   } else {
     console.log('Cannot stop - recorder state:', mediaRecorder ? mediaRecorder.state : 'not initialized');
+  }
+
+  // Release the media stream if it exists
+  if (globalStream) {
+    const tracks = globalStream.getTracks();
+    tracks.forEach(track => {
+      track.stop();
+    });
+    globalStream = null;
+    console.log('Released media stream');
   }
 }
 
@@ -858,14 +890,105 @@ if (window.electronAPI) {
     isWindowVisible = false;
     console.log('Window hidden - continuing background operations');
 
-    // Update status to reflect that recording is happening in background
+    // Update status to reflect that recording is happening in background (only if checked in)
     if (isCheckedIn && !isOnBreak) {
-      statusText.innerHTML = `Recording in background since <strong>${formatTime(startTime)}</strong>`;
+      if (window.statusText) window.statusText.innerHTML = `Recording in background since <strong>${formatTime(startTime)}</strong>`;
     } else if (isCheckedIn && isOnBreak && breakStartTime) {
-      statusText.innerHTML = `On break, recording paused. Background session since <strong>${formatTime(startTime)}</strong>`;
+      if (window.statusText) window.statusText.innerHTML = `On break, recording paused. Background session since <strong>${formatTime(startTime)}</strong>`;
+    } else {
+      // If not checked in, show appropriate status
+      if (window.statusText) window.statusText.textContent = 'Logged out. Please log in to start recording.';
     }
   });
 }
+
+// Listen for stop-recording-before-logout event from main process
+ipcRenderer.on('stop-recording-before-logout', async () => {
+  console.log('Received stop-recording-before-logout event from main process');
+
+  // Stop any ongoing recording
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    console.log('Stopped recording as requested by main process before logout');
+  }
+
+  // Clear any ongoing timeouts/intervals
+  if (segmentTimeoutId) {
+    clearTimeout(segmentTimeoutId);
+    segmentTimeoutId = null;
+  }
+
+  if (recordingInterval) {
+    clearInterval(recordingInterval);
+    recordingInterval = null;
+  }
+
+  // Release the media stream if it exists
+  if (globalStream) {
+    const tracks = globalStream.getTracks();
+    tracks.forEach(track => {
+      track.stop();
+    });
+    globalStream = null;
+    console.log('Released media stream during logout');
+  }
+
+  // Reset state variables
+  isCheckedIn = false;
+  isOnBreak = false;
+  startTime = null;
+  breakStartTime = null;
+  totalTimeWorked = 0;
+  totalBreakTime = 0;
+});
+
+// Listen for reset-all-states-before-logout event from main process
+ipcRenderer.on('reset-all-states-before-logout', async () => {
+  console.log('Received reset-all-states-before-logout event from main process');
+
+  // Stop any ongoing recording
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    console.log('Stopped recording as requested by main process before logout');
+  }
+
+  // Clear any ongoing timeouts/intervals
+  if (segmentTimeoutId) {
+    clearTimeout(segmentTimeoutId);
+    segmentTimeoutId = null;
+  }
+
+  if (recordingInterval) {
+    clearInterval(recordingInterval);
+    recordingInterval = null;
+  }
+
+  // Release the media stream if it exists
+  if (globalStream) {
+    const tracks = globalStream.getTracks();
+    tracks.forEach(track => {
+      track.stop();
+    });
+    globalStream = null;
+    console.log('Released media stream during logout');
+  }
+
+  // Reset state variables
+  isCheckedIn = false;
+  isOnBreak = false;
+  startTime = null;
+  breakStartTime = null;
+  totalTimeWorked = 0;
+  totalBreakTime = 0;
+
+  // Update UI to reflect logged out state
+  if (window.checkInBtn) window.checkInBtn.style.display = 'inline-block';
+  if (window.breakBtn) window.breakBtn.style.display = 'none';
+  if (window.checkOutBtn) window.checkOutBtn.style.display = 'none';
+  if (window.breakBtn) window.breakBtn.textContent = 'Break Time';
+  if (window.activityBadge) window.activityBadge.classList.remove('active');
+  if (window.statusText) window.statusText.textContent = 'Logged out. Please log back in to continue.';
+});
 
 // Initialize network usage tracking when the page loads
 // Wait a moment to ensure all DOM elements are ready

@@ -144,6 +144,27 @@ class SessionManager {
   }
 
   /**
+   * Clear all session data including any cached data
+   * @returns {Promise<boolean>} - True if successful, false otherwise
+   */
+  async clearAllSessionData() {
+    try {
+      // Clear the main session file
+      if (fs.existsSync(this.sessionFile)) {
+        await fs.promises.unlink(this.sessionFile);
+      }
+
+      // Additional cleanup can be added here if needed
+      // For example, clearing any temporary session data
+
+      return true;
+    } catch (error) {
+      console.error('Error clearing all session data:', error);
+      return false;
+    }
+  }
+
+  /**
    * Check if a valid session exists
    * @returns {Promise<boolean>} - True if valid session exists, false otherwise
    */
