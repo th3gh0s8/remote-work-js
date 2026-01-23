@@ -469,6 +469,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             box-shadow: var(--card-shadow);
             overflow: hidden;
             transition: var(--transition);
+            min-height: 400px; /* Added minimum height to accommodate dropdown */
         }
 
         .section:hover {
