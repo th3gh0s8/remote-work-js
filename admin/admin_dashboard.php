@@ -21,6 +21,61 @@ try {
 }
 
 // Fetch active users (users who have logged in recently) - each user only once
+$sort_column = $_GET['sort_col'] ?? 'last_activity';
+$sort_direction = $_GET['sort_dir'] ?? 'DESC';
+$user_status_filter = $_GET['user_status'] ?? '';
+$branch_filter = $_GET['branch_id'] ?? '';
+$page = isset($_GET['page']) && $_GET['page'] == 'active_users' ? (int)$_GET['active_users_page'] : 1;
+$limit = 10; // Number of records per page
+$offset = ($page - 1) * $limit;
+
+// Validate sort column to prevent SQL injection
+$allowed_columns = ['ID', 'RepID', 'Name', 'br_id', 'last_activity'];
+$sort_column = in_array($sort_column, $allowed_columns) ? $sort_column : 'last_activity';
+
+// Validate sort direction
+$sort_direction = strtoupper($sort_direction) === 'ASC' ? 'ASC' : 'DESC';
+
+// Build the WHERE clause dynamically
+$where_conditions = ["ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"];
+$params = [];
+
+if (!empty($user_status_filter)) {
+    $where_conditions[] = "CASE
+        WHEN EXISTS (
+            SELECT 1 FROM user_activity ua2
+            WHERE ua2.salesrepTb = s.ID
+            AND ua2.activity_type = 'login'
+            AND ua2.rDateTime > COALESCE((
+                SELECT MAX(ua3.rDateTime)
+                FROM user_activity ua3
+                WHERE ua3.salesrepTb = s.ID
+                AND ua3.activity_type IN ('logout', 'check-out')
+            ), '1900-01-01')
+        ) THEN 'online'
+        ELSE 'offline'
+    END = ?";
+    $params[] = $user_status_filter;
+}
+
+if (!empty($branch_filter)) {
+    $where_conditions[] = "s.br_id LIKE ?";
+    $params[] = "%{$branch_filter}%";
+}
+
+$where_clause = implode(" AND ", $where_conditions);
+
+// Get total count for pagination
+$count_stmt = $pdo->prepare("
+    SELECT COUNT(DISTINCT s.ID) as total
+    FROM salesrep s
+    INNER JOIN user_activity ua ON s.ID = ua.salesrepTb
+    WHERE {$where_clause}
+");
+$count_stmt->execute($params);
+$total_records = $count_stmt->fetch(PDO::FETCH_ASSOC)['total'];
+$total_pages = ceil($total_records / $limit);
+
 $stmt = $pdo->prepare("
     SELECT s.*, MAX(ua.rDateTime) as last_activity,
            CASE
@@ -39,34 +94,101 @@ $stmt = $pdo->prepare("
            END as current_status
     FROM salesrep s
     INNER JOIN user_activity ua ON s.ID = ua.salesrepTb
-    WHERE ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+    WHERE {$where_clause}
     GROUP BY s.ID
-    ORDER BY last_activity DESC
+    ORDER BY {$sort_column} {$sort_direction}
+    LIMIT {$limit} OFFSET {$offset}
 ");
-$stmt->execute();
+$stmt->execute($params);
 $active_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch recent recordings
+$rec_sort_column = $_GET['rec_sort_col'] ?? 'w.date';
+$rec_sort_direction = $_GET['rec_sort_dir'] ?? 'DESC';
+$rec_page = isset($_GET['page']) && $_GET['page'] == 'recordings' ? (int)$_GET['recordings_page'] : 1;
+$rec_limit = 10; // Number of records per page
+$rec_offset = ($rec_page - 1) * $rec_limit;
+
+// Validate sort column to prevent SQL injection
+$allowed_rec_columns = ['w.ID', 's.Name', 's.RepID', 'w.imgName', 'w.date', 'w.time', 'w.status'];
+$rec_sort_column = in_array($rec_sort_column, $allowed_rec_columns) ? $rec_sort_column : 'w.date';
+
+// Validate sort direction
+$rec_sort_direction = strtoupper($rec_sort_direction) === 'ASC' ? 'ASC' : 'DESC';
+
+// Get total count for pagination
+$rec_count_stmt = $pdo->prepare("
+    SELECT COUNT(*) as total
+    FROM web_images w
+    LEFT JOIN salesrep s ON w.user_id = s.ID
+    WHERE w.type = 'recording' AND w.date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+");
+$rec_count_stmt->execute();
+$rec_total_records = $rec_count_stmt->fetch(PDO::FETCH_ASSOC)['total'];
+$rec_total_pages = ceil($rec_total_records / $rec_limit);
+
 $stmt = $pdo->prepare("
     SELECT w.*, s.Name as user_name, s.RepID
     FROM web_images w
     LEFT JOIN salesrep s ON w.user_id = s.ID
     WHERE w.type = 'recording' AND w.date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-    ORDER BY w.date DESC, w.time DESC
-    LIMIT 50
+    ORDER BY {$rec_sort_column} {$rec_sort_direction}, w.time DESC
+    LIMIT {$rec_limit} OFFSET {$rec_offset}
 ");
 $stmt->execute();
 $recordings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Get date range for filtering (moved before the user activities query)
+$start_date = $_GET['start_date'] ?? '';
+$end_date = $_GET['end_date'] ?? '';
+
 // Fetch recent user activities
+$act_sort_column = $_GET['act_sort_col'] ?? 'ua.rDateTime';
+$act_sort_direction = $_GET['act_sort_dir'] ?? 'DESC';
+$act_page = isset($_GET['page']) && $_GET['page'] == 'activities' ? (int)$_GET['activities_page'] : 1;
+$act_limit = 10; // Number of records per page
+$act_offset = ($act_page - 1) * $act_limit;
+
+// Validate sort column to prevent SQL injection
+$allowed_act_columns = ['ua.ID', 's.Name', 's.RepID', 'ua.activity_type', 'ua.rDateTime', 'ua.duration'];
+$act_sort_column = in_array($act_sort_column, $allowed_act_columns) ? $act_sort_column : 'ua.rDateTime';
+
+// Validate sort direction
+$act_sort_direction = strtoupper($act_sort_direction) === 'ASC' ? 'ASC' : 'DESC';
+
+// Build the WHERE clause dynamically to allow for date range filtering
+$where_conditions = [];
+$params = [];
+
+// Add date range condition only if dates are provided
+if (!empty($start_date) && !empty($end_date)) {
+    $where_conditions[] = "ua.rDateTime BETWEEN ? AND ?";
+    $params[] = $start_date . ' 00:00:00';
+    $params[] = $end_date . ' 23:59:59';
+}
+
+$where_clause = !empty($where_conditions) ? "WHERE " . implode(" AND ", $where_conditions) : "";
+
+// Get total count for pagination
+$act_count_stmt = $pdo->prepare("
+    SELECT COUNT(*) as total
+    FROM user_activity ua
+    LEFT JOIN salesrep s ON ua.salesrepTb = s.ID
+    {$where_clause}
+");
+$act_count_stmt->execute($params);
+$act_total_records = $act_count_stmt->fetch(PDO::FETCH_ASSOC)['total'];
+$act_total_pages = ceil($act_total_records / $act_limit);
+
 $stmt = $pdo->prepare("
     SELECT ua.*, s.Name as user_name, s.RepID
     FROM user_activity ua
     LEFT JOIN salesrep s ON ua.salesrepTb = s.ID
-    ORDER BY ua.rDateTime DESC
-    LIMIT 50
+    {$where_clause}
+    ORDER BY {$act_sort_column} {$act_sort_direction}
+    LIMIT {$act_limit} OFFSET {$act_offset}
 ");
-$stmt->execute();
+$stmt->execute($params);
 $user_activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Count total users
@@ -96,6 +218,68 @@ $stmt->execute();
 $recordings_today = $stmt->fetch(PDO::FETCH_ASSOC)['today_count'];
 
 // Fetch all users for the user management section with online status
+$all_users_sort_column = $_GET['all_users_sort_col'] ?? 's.ID';
+$all_users_sort_direction = $_GET['all_users_sort_dir'] ?? 'DESC';
+$account_status_filter = $_GET['account_status'] ?? '';
+$online_status_filter = $_GET['online_status'] ?? '';
+$all_users_branch_filter = $_GET['all_users_branch'] ?? '';
+$all_users_page = isset($_GET['page']) && $_GET['page'] == 'all_users' ? (int)$_GET['all_users_page'] : 1;
+$all_users_limit = 10; // Number of records per page
+$all_users_offset = ($all_users_page - 1) * $all_users_limit;
+
+// Validate sort column to prevent SQL injection
+$allowed_all_users_columns = ['s.ID', 's.RepID', 's.Name', 's.br_id', 's.emailAddress', 's.join_date', 's.Actives'];
+$all_users_sort_column = in_array($all_users_sort_column, $allowed_all_users_columns) ? $all_users_sort_column : 's.ID';
+
+// Validate sort direction
+$all_users_sort_direction = strtoupper($all_users_sort_direction) === 'ASC' ? 'ASC' : 'DESC';
+
+// Build the WHERE clause dynamically
+$all_users_where_conditions = [];
+$all_users_params = [];
+
+if (!empty($account_status_filter)) {
+    $all_users_where_conditions[] = "s.Actives = ?";
+    $all_users_params[] = $account_status_filter;
+}
+
+if (!empty($online_status_filter)) {
+    $all_users_where_conditions[] = "
+        CASE
+            WHEN EXISTS (
+                SELECT 1 FROM user_activity ua
+                WHERE ua.salesrepTb = s.ID
+                AND ua.activity_type = 'login'
+                AND ua.rDateTime > COALESCE((
+                    SELECT MAX(ua2.rDateTime)
+                    FROM user_activity ua2
+                    WHERE ua2.salesrepTb = s.ID
+                    AND ua2.activity_type IN ('logout', 'check-out')
+                ), '1900-01-01')
+                AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+            ) THEN 'online'
+            ELSE 'offline'
+        END = ? ";
+    $all_users_params[] = $online_status_filter;
+}
+
+if (!empty($all_users_branch_filter)) {
+    $all_users_where_conditions[] = "s.br_id LIKE ?";
+    $all_users_params[] = "%{$all_users_branch_filter}%";
+}
+
+$all_users_where_clause = !empty($all_users_where_conditions) ? "WHERE " . implode(" AND ", $all_users_where_conditions) : "";
+
+// Get total count for pagination
+$all_users_count_stmt = $pdo->prepare("
+    SELECT COUNT(*) as total
+    FROM salesrep s
+    {$all_users_where_clause}
+");
+$all_users_count_stmt->execute($all_users_params);
+$all_users_total_records = $all_users_count_stmt->fetch(PDO::FETCH_ASSOC)['total'];
+$all_users_total_pages = ceil($all_users_total_records / $all_users_limit);
+
 $stmt = $pdo->prepare("
     SELECT s.*,
            CASE
@@ -115,14 +299,13 @@ $stmt = $pdo->prepare("
            END as current_status,
            (SELECT MAX(rDateTime) FROM user_activity WHERE salesrepTb = s.ID) as last_activity
     FROM salesrep s
-    ORDER BY s.ID DESC
+    {$all_users_where_clause}
+    ORDER BY {$all_users_sort_column} {$all_users_sort_direction}
+    LIMIT {$all_users_limit} OFFSET {$all_users_offset}
 ");
-$stmt->execute();
+$stmt->execute($all_users_params);
 $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Get date range for filtering
-$start_date = $_GET['start_date'] ?? date('Y-m-d', strtotime('-7 days'));
-$end_date = $_GET['end_date'] ?? date('Y-m-d');
 ?>
 
 <!DOCTYPE html>
@@ -436,16 +619,31 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
                 <div class="section-header">
                     <h2>Active Users (Last 24 Hours)</h2>
                 </div>
+                <div class="filters">
+                    <div class="filter-item">
+                        <label for="user_status_filter">Status:</label>
+                        <select id="user_status_filter" name="user_status_filter" onchange="filterActiveUsers()">
+                            <option value="">All Statuses</option>
+                            <option value="online" <?= (isset($_GET['user_status']) && $_GET['user_status'] == 'online') ? 'selected' : '' ?>>Online</option>
+                            <option value="offline" <?= (isset($_GET['user_status']) && $_GET['user_status'] == 'offline') ? 'selected' : '' ?>>Offline</option>
+                        </select>
+                    </div>
+                    <div class="filter-item">
+                        <label for="branch_filter">Branch ID:</label>
+                        <input type="text" id="branch_filter" name="branch_filter" value="<?= $_GET['branch_id'] ?? '' ?>" placeholder="Filter by branch">
+                    </div>
+                    <button class="apply-filters" onclick="filterActiveUsers()">Apply Filters</button>
+                </div>
                 <div class="section-content">
                     <?php if (count($active_users) > 0): ?>
                         <table>
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Rep ID</th>
-                                    <th>Name</th>
-                                    <th>Branch ID</th>
-                                    <th>Last Activity</th>
+                                    <th><a href="?page=active_users&active_users_page=<?= $page ?>&sort_col=ID&sort_dir=<?= $sort_column === 'ID' && $sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">ID <?= $sort_column === 'ID' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=active_users&active_users_page=<?= $page ?>&sort_col=RepID&sort_dir=<?= $sort_column === 'RepID' && $sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Rep ID <?= $sort_column === 'RepID' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=active_users&active_users_page=<?= $page ?>&sort_col=Name&sort_dir=<?= $sort_column === 'Name' && $sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Name <?= $sort_column === 'Name' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=active_users&active_users_page=<?= $page ?>&sort_col=br_id&sort_dir=<?= $sort_column === 'br_id' && $sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Branch ID <?= $sort_column === 'br_id' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=active_users&active_users_page=<?= $page ?>&sort_col=last_activity&sort_dir=<?= $sort_column === 'last_activity' && $sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Last Activity <?= $sort_column === 'last_activity' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                     <th>Status</th>
                                 </tr>
                             </thead>
@@ -468,6 +666,24 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+
+                        <!-- Pagination -->
+                        <div class="pagination">
+                            <?php if ($page > 1): ?>
+                                <a href="?page=active_users&active_users_page=<?= $page - 1 ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">&laquo; Previous</a>
+                            <?php endif; ?>
+
+                            <?php for ($i = max(1, $page - 2); $i <= min($total_pages, $page + 2); $i++): ?>
+                                <a href="?page=active_users&active_users_page=<?= $i ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>"
+                                   class="<?= $i == $page ? 'active' : '' ?>">
+                                    <?= $i ?>
+                                </a>
+                            <?php endfor; ?>
+
+                            <?php if ($page < $total_pages): ?>
+                                <a href="?page=active_users&active_users_page=<?= $page + 1 ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Next &raquo;</a>
+                            <?php endif; ?>
+                        </div>
                     <?php else: ?>
                         <div class="no-data">No active users in the last 24 hours</div>
                     <?php endif; ?>
@@ -485,13 +701,13 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
                         <table>
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>User</th>
-                                    <th>Rep ID</th>
-                                    <th>Recording Name</th>
-                                    <th>Date</th>
-                                    <th>Time</th>
-                                    <th>Status</th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.ID&rec_sort_dir=<?= $rec_sort_column === 'w.ID' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">ID <?= $rec_sort_column === 'w.ID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=s.Name&rec_sort_dir=<?= $rec_sort_column === 's.Name' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">User <?= $rec_sort_column === 's.Name' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=s.RepID&rec_sort_dir=<?= $rec_sort_column === 's.RepID' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Rep ID <?= $rec_sort_column === 's.RepID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.imgName&rec_sort_dir=<?= $rec_sort_column === 'w.imgName' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Recording Name <?= $rec_sort_column === 'w.imgName' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.date&rec_sort_dir=<?= $rec_sort_column === 'w.date' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Date <?= $rec_sort_column === 'w.date' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.time&rec_sort_dir=<?= $rec_sort_column === 'w.time' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Time <?= $rec_sort_column === 'w.time' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.status&rec_sort_dir=<?= $rec_sort_column === 'w.status' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Status <?= $rec_sort_column === 'w.status' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -528,6 +744,24 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+
+                        <!-- Pagination -->
+                        <div class="pagination">
+                            <?php if ($rec_page > 1): ?>
+                                <a href="?page=recordings&recordings_page=<?= $rec_page - 1 ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?>">&laquo; Previous</a>
+                            <?php endif; ?>
+
+                            <?php for ($i = max(1, $rec_page - 2); $i <= min($rec_total_pages, $rec_page + 2); $i++): ?>
+                                <a href="?page=recordings&recordings_page=<?= $i ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?>"
+                                   class="<?= $i == $rec_page ? 'active' : '' ?>">
+                                    <?= $i ?>
+                                </a>
+                            <?php endfor; ?>
+
+                            <?php if ($rec_page < $rec_total_pages): ?>
+                                <a href="?page=recordings&recordings_page=<?= $rec_page + 1 ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?>">Next &raquo;</a>
+                            <?php endif; ?>
+                        </div>
                     <?php else: ?>
                         <div class="no-data">No recordings found in the last 7 days</div>
                     <?php endif; ?>
@@ -550,18 +784,19 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
                         <input type="date" id="end_date" name="end_date" value="<?php echo $end_date; ?>">
                     </div>
                     <button class="apply-filters" onclick="applyFilters()">Apply Filters</button>
+                    <small style="align-self: center; color: #666;">Leave empty to show all records</small>
                 </div>
                 <div class="section-content">
                     <?php if (count($user_activities) > 0): ?>
                         <table>
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>User</th>
-                                    <th>Rep ID</th>
-                                    <th>Activity Type</th>
-                                    <th>Date/Time</th>
-                                    <th>Duration</th>
+                                    <th><a href="?page=activities&activities_page=<?= $act_page ?>&act_sort_col=ua.ID&act_sort_dir=<?= $act_sort_column === 'ua.ID' && $act_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">ID <?= $act_sort_column === 'ua.ID' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=activities&activities_page=<?= $act_page ?>&act_sort_col=s.Name&act_sort_dir=<?= $act_sort_column === 's.Name' && $act_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">User <?= $act_sort_column === 's.Name' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=activities&activities_page=<?= $act_page ?>&act_sort_col=s.RepID&act_sort_dir=<?= $act_sort_column === 's.RepID' && $act_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Rep ID <?= $act_sort_column === 's.RepID' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=activities&activities_page=<?= $act_page ?>&act_sort_col=ua.activity_type&act_sort_dir=<?= $act_sort_column === 'ua.activity_type' && $act_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Activity Type <?= $act_sort_column === 'ua.activity_type' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=activities&activities_page=<?= $act_page ?>&act_sort_col=ua.rDateTime&act_sort_dir=<?= $act_sort_column === 'ua.rDateTime' && $act_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Date/Time <?= $act_sort_column === 'ua.rDateTime' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=activities&activities_page=<?= $act_page ?>&act_sort_col=ua.duration&act_sort_dir=<?= $act_sort_column === 'ua.duration' && $act_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Duration <?= $act_sort_column === 'ua.duration' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -581,6 +816,24 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+
+                        <!-- Pagination -->
+                        <div class="pagination">
+                            <?php if ($act_page > 1): ?>
+                                <a href="?page=activities&activities_page=<?= $act_page - 1 ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">&laquo; Previous</a>
+                            <?php endif; ?>
+
+                            <?php for ($i = max(1, $act_page - 2); $i <= min($act_total_pages, $act_page + 2); $i++): ?>
+                                <a href="?page=activities&activities_page=<?= $i ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>"
+                                   class="<?= $i == $act_page ? 'active' : '' ?>">
+                                    <?= $i ?>
+                                </a>
+                            <?php endfor; ?>
+
+                            <?php if ($act_page < $act_total_pages): ?>
+                                <a href="?page=activities&activities_page=<?= $act_page + 1 ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Next &raquo;</a>
+                            <?php endif; ?>
+                        </div>
                     <?php else: ?>
                         <div class="no-data">No user activities found</div>
                     <?php endif; ?>
@@ -593,17 +846,40 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
                 <div class="section-header">
                     <h2>All Users</h2>
                 </div>
+                <div class="filters">
+                    <div class="filter-item">
+                        <label for="all_users_status_filter">Account Status:</label>
+                        <select id="all_users_status_filter" name="all_users_status_filter" onchange="filterAllUsers()">
+                            <option value="">All Accounts</option>
+                            <option value="YES" <?= (isset($_GET['account_status']) && $_GET['account_status'] == 'YES') ? 'selected' : '' ?>>Active</option>
+                            <option value="NO" <?= (isset($_GET['account_status']) && $_GET['account_status'] == 'NO') ? 'selected' : '' ?>>Inactive</option>
+                        </select>
+                    </div>
+                    <div class="filter-item">
+                        <label for="all_users_online_status_filter">Online Status:</label>
+                        <select id="all_users_online_status_filter" name="all_users_online_status_filter" onchange="filterAllUsers()">
+                            <option value="">All Statuses</option>
+                            <option value="online" <?= (isset($_GET['online_status']) && $_GET['online_status'] == 'online') ? 'selected' : '' ?>>Online</option>
+                            <option value="offline" <?= (isset($_GET['online_status']) && $_GET['online_status'] == 'offline') ? 'selected' : '' ?>>Offline</option>
+                        </select>
+                    </div>
+                    <div class="filter-item">
+                        <label for="all_users_branch_filter">Branch ID:</label>
+                        <input type="text" id="all_users_branch_filter" name="all_users_branch_filter" value="<?= $_GET['all_users_branch'] ?? '' ?>" placeholder="Filter by branch">
+                    </div>
+                    <button class="apply-filters" onclick="filterAllUsers()">Apply Filters</button>
+                </div>
                 <div class="section-content">
                     <?php if (count($all_users) > 0): ?>
                         <table>
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Rep ID</th>
-                                    <th>Name</th>
-                                    <th>Branch ID</th>
-                                    <th>Email</th>
-                                    <th>Join Date</th>
+                                    <th><a href="?page=all_users&all_users_page=<?= $all_users_page ?>&all_users_sort_col=s.ID&all_users_sort_dir=<?= $all_users_sort_column === 's.ID' && $all_users_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($account_status_filter)): ?>&account_status=<?= $account_status_filter ?><?php endif; ?><?php if (!empty($online_status_filter)): ?>&online_status=<?= $online_status_filter ?><?php endif; ?><?php if (!empty($all_users_branch_filter)): ?>&all_users_branch=<?= $all_users_branch_filter ?><?php endif; ?>">ID <?= $all_users_sort_column === 's.ID' ? ($all_users_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=all_users&all_users_page=<?= $all_users_page ?>&all_users_sort_col=s.RepID&all_users_sort_dir=<?= $all_users_sort_column === 's.RepID' && $all_users_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($account_status_filter)): ?>&account_status=<?= $account_status_filter ?><?php endif; ?><?php if (!empty($online_status_filter)): ?>&online_status=<?= $online_status_filter ?><?php endif; ?><?php if (!empty($all_users_branch_filter)): ?>&all_users_branch=<?= $all_users_branch_filter ?><?php endif; ?>">Rep ID <?= $all_users_sort_column === 's.RepID' ? ($all_users_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=all_users&all_users_page=<?= $all_users_page ?>&all_users_sort_col=s.Name&all_users_sort_dir=<?= $all_users_sort_column === 's.Name' && $all_users_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($account_status_filter)): ?>&account_status=<?= $account_status_filter ?><?php endif; ?><?php if (!empty($online_status_filter)): ?>&online_status=<?= $online_status_filter ?><?php endif; ?><?php if (!empty($all_users_branch_filter)): ?>&all_users_branch=<?= $all_users_branch_filter ?><?php endif; ?>">Name <?= $all_users_sort_column === 's.Name' ? ($all_users_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=all_users&all_users_page=<?= $all_users_page ?>&all_users_sort_col=s.br_id&all_users_sort_dir=<?= $all_users_sort_column === 's.br_id' && $all_users_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($account_status_filter)): ?>&account_status=<?= $account_status_filter ?><?php endif; ?><?php if (!empty($online_status_filter)): ?>&online_status=<?= $online_status_filter ?><?php endif; ?><?php if (!empty($all_users_branch_filter)): ?>&all_users_branch=<?= $all_users_branch_filter ?><?php endif; ?>">Branch ID <?= $all_users_sort_column === 's.br_id' ? ($all_users_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=all_users&all_users_page=<?= $all_users_page ?>&all_users_sort_col=s.emailAddress&all_users_sort_dir=<?= $all_users_sort_column === 's.emailAddress' && $all_users_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($account_status_filter)): ?>&account_status=<?= $account_status_filter ?><?php endif; ?><?php if (!empty($online_status_filter)): ?>&online_status=<?= $online_status_filter ?><?php endif; ?><?php if (!empty($all_users_branch_filter)): ?>&all_users_branch=<?= $all_users_branch_filter ?><?php endif; ?>">Email <?= $all_users_sort_column === 's.emailAddress' ? ($all_users_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=all_users&all_users_page=<?= $all_users_page ?>&all_users_sort_col=s.join_date&all_users_sort_dir=<?= $all_users_sort_column === 's.join_date' && $all_users_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($account_status_filter)): ?>&account_status=<?= $account_status_filter ?><?php endif; ?><?php if (!empty($online_status_filter)): ?>&online_status=<?= $online_status_filter ?><?php endif; ?><?php if (!empty($all_users_branch_filter)): ?>&all_users_branch=<?= $all_users_branch_filter ?><?php endif; ?>">Join Date <?= $all_users_sort_column === 's.join_date' ? ($all_users_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr>
@@ -636,6 +912,24 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+
+                        <!-- Pagination -->
+                        <div class="pagination">
+                            <?php if ($all_users_page > 1): ?>
+                                <a href="?page=all_users&all_users_page=<?= $all_users_page - 1 ?>&all_users_sort_col=<?= $all_users_sort_column ?>&all_users_sort_dir=<?= $all_users_sort_direction ?><?php if (!empty($account_status_filter)): ?>&account_status=<?= $account_status_filter ?><?php endif; ?><?php if (!empty($online_status_filter)): ?>&online_status=<?= $online_status_filter ?><?php endif; ?><?php if (!empty($all_users_branch_filter)): ?>&all_users_branch=<?= $all_users_branch_filter ?><?php endif; ?>">&laquo; Previous</a>
+                            <?php endif; ?>
+
+                            <?php for ($i = max(1, $all_users_page - 2); $i <= min($all_users_total_pages, $all_users_page + 2); $i++): ?>
+                                <a href="?page=all_users&all_users_page=<?= $i ?>&all_users_sort_col=<?= $all_users_sort_column ?>&all_users_sort_dir=<?= $all_users_sort_direction ?><?php if (!empty($account_status_filter)): ?>&account_status=<?= $account_status_filter ?><?php endif; ?><?php if (!empty($online_status_filter)): ?>&online_status=<?= $online_status_filter ?><?php endif; ?><?php if (!empty($all_users_branch_filter)): ?>&all_users_branch=<?= $all_users_branch_filter ?><?php endif; ?>"
+                                   class="<?= $i == $all_users_page ? 'active' : '' ?>">
+                                    <?= $i ?>
+                                </a>
+                            <?php endfor; ?>
+
+                            <?php if ($all_users_page < $all_users_total_pages): ?>
+                                <a href="?page=all_users&all_users_page=<?= $all_users_page + 1 ?>&all_users_sort_col=<?= $all_users_sort_column ?>&all_users_sort_dir=<?= $all_users_sort_direction ?><?php if (!empty($account_status_filter)): ?>&account_status=<?= $account_status_filter ?><?php endif; ?><?php if (!empty($online_status_filter)): ?>&online_status=<?= $online_status_filter ?><?php endif; ?><?php if (!empty($all_users_branch_filter)): ?>&all_users_branch=<?= $all_users_branch_filter ?><?php endif; ?>">Next &raquo;</a>
+                            <?php endif; ?>
+                        </div>
                     <?php else: ?>
                         <div class="no-data">No users found</div>
                     <?php endif; ?>
@@ -667,8 +961,81 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
             const startDate = document.getElementById('start_date').value;
             const endDate = document.getElementById('end_date').value;
 
+            let url = '?';
+            if (startDate) {
+                url += `start_date=${startDate}&`;
+            }
+            if (endDate) {
+                url += `end_date=${endDate}&`;
+            }
+
+            // Remove trailing '&' if present
+            if (url.endsWith('&')) {
+                url = url.slice(0, -1);
+            }
+
             // Reload the page with the filter parameters
-            window.location.href = `?start_date=${startDate}&end_date=${endDate}`;
+            window.location.href = url;
+        }
+
+        function filterActiveUsers() {
+            const statusFilter = document.getElementById('user_status_filter').value;
+            const branchFilter = document.getElementById('branch_filter').value;
+            const sortCol = '<?= $sort_column ?>';
+            const sortDir = '<?= $sort_direction ?>';
+
+            let url = '?';
+            if (statusFilter) {
+                url += `user_status=${statusFilter}&`;
+            }
+            if (branchFilter) {
+                url += `branch_id=${branchFilter}&`;
+            }
+            if (sortCol) {
+                url += `sort_col=${sortCol}&`;
+            }
+            if (sortDir) {
+                url += `sort_dir=${sortDir}&`;
+            }
+
+            // Remove trailing '&'
+            if (url.endsWith('&')) {
+                url = url.slice(0, -1);
+            }
+
+            window.location.href = url;
+        }
+
+        function filterAllUsers() {
+            const accountStatusFilter = document.getElementById('all_users_status_filter').value;
+            const onlineStatusFilter = document.getElementById('all_users_online_status_filter').value;
+            const branchFilter = document.getElementById('all_users_branch_filter').value;
+            const sortCol = '<?= $all_users_sort_column ?>';
+            const sortDir = '<?= $all_users_sort_direction ?>';
+
+            let url = '?';
+            if (accountStatusFilter) {
+                url += `account_status=${accountStatusFilter}&`;
+            }
+            if (onlineStatusFilter) {
+                url += `online_status=${onlineStatusFilter}&`;
+            }
+            if (branchFilter) {
+                url += `all_users_branch=${branchFilter}&`;
+            }
+            if (sortCol) {
+                url += `all_users_sort_col=${sortCol}&`;
+            }
+            if (sortDir) {
+                url += `all_users_sort_dir=${sortDir}&`;
+            }
+
+            // Remove trailing '&'
+            if (url.endsWith('&')) {
+                url = url.slice(0, -1);
+            }
+
+            window.location.href = url;
         }
     </script>
 </body>

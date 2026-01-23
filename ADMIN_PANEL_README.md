@@ -6,8 +6,12 @@ This admin panel allows administrators to monitor users and recordings in the re
 ## Features
 - View active users (each user listed only once with most recent activity in the last 24 hours)
 - Accurate online/offline status based on login/logout activity
-- View recent recordings (from the last 7 days)
-- View user activity logs with date range filtering
+- Sortable columns in all data tables (click on column headers)
+- Pagination for all data tables (10 records per page by default)
+- Filter active users by status (online/offline) and branch ID
+- Filter all users by account status (active/inactive), online status, and branch ID
+- View recent recordings (from the last 7 days) with sortable columns
+- View user activity logs with date range filtering and sortable columns
 - View all registered users with their current online status
 - Download available recordings
 - Dashboard statistics for quick overview
