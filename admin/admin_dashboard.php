@@ -469,6 +469,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             box-shadow: var(--card-shadow);
             overflow: hidden;
             transition: var(--transition);
+            min-height: 400px; /* Added minimum height to accommodate dropdown */
         }
 
         .section:hover {
@@ -825,8 +826,9 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             overflow-y: auto;
             border: 1px solid #ddd;
             border-radius: 5px;
-            top: calc(100% + 5px); /* Position below the input with slight gap */
+            top: 100%;
             left: 0;
+            margin-top: 2px;
         }
 
         .dropdown-content .user-option {
@@ -971,7 +973,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <h2><span class="icon">📹</span> All Recordings</h2>
                 </div>
                 <div class="filters">
-                    <div class="filter-item">
+                    <div class="filter-item" style="position: relative; display: inline-block;">
                         <label for="rec_user_filter">User (Rep ID):</label>
                         <input type="text" id="rec_user_filter_input" placeholder="Search by Rep ID or Name"
                                value="<?php
@@ -989,7 +991,8 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                onclick="toggleUserDropdown()"
                                onkeyup="filterUserOptions()" />
                         <div id="user-dropdown" class="dropdown-content">
-                            <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold;" onclick="clearUserSelection()">All Users</div>
+                            <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold; border-bottom: 1px solid #ddd;" onclick="selectAllUsers()">Select All Users</div>
+                            <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold;" onclick="clearUserSelection()">Clear Selection</div>
                             <?php
                             // Fetch all users for the filter dropdown
                             $user_filter_stmt = $pdo->query("SELECT ID, Name, RepID FROM salesrep WHERE Actives = 'YES' ORDER BY RepID");
@@ -1453,6 +1456,20 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
 
             window.location.href = url;
+        }
+
+        function selectAllUsers() {
+            const input = document.getElementById('rec_user_filter_input');
+            const hiddenInput = document.getElementById('rec_user_filter');
+
+            input.value = 'All Users Selected';
+            hiddenInput.value = ''; // Empty value means no specific user filter
+
+            // Close the dropdown
+            document.getElementById('user-dropdown').style.display = 'none';
+
+            // Trigger the filter function
+            filterRecordings();
         }
 
         function toggleUserDropdown() {
