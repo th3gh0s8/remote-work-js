@@ -116,14 +116,40 @@ $rec_sort_column = in_array($rec_sort_column, $allowed_rec_columns) ? $rec_sort_
 // Validate sort direction
 $rec_sort_direction = strtoupper($rec_sort_direction) === 'ASC' ? 'ASC' : 'DESC';
 
+// Build the WHERE clause dynamically to allow for date range filtering
+$rec_where_conditions = ["w.type = 'recording'"];
+$rec_params = [];
+
+// Get date range for recordings specifically
+$rec_start_date = $_GET['rec_start_date'] ?? '';
+$rec_end_date = $_GET['rec_end_date'] ?? '';
+
+// Get user filter for recordings
+$rec_user_filter = $_GET['rec_user_filter'] ?? '';
+
+// Add date range condition only if dates are provided
+if (!empty($rec_start_date) && !empty($rec_end_date)) {
+    $rec_where_conditions[] = "w.date BETWEEN ? AND ?";
+    $rec_params[] = $rec_start_date;
+    $rec_params[] = $rec_end_date;
+}
+
+// Add user filter condition if user is selected
+if (!empty($rec_user_filter)) {
+    $rec_where_conditions[] = "w.user_id = ?";
+    $rec_params[] = $rec_user_filter;
+}
+
+$rec_where_clause = !empty($rec_where_conditions) ? "WHERE " . implode(" AND ", $rec_where_conditions) : "";
+
 // Get total count for pagination
 $rec_count_stmt = $pdo->prepare("
     SELECT COUNT(*) as total
     FROM web_images w
     LEFT JOIN salesrep s ON w.user_id = s.ID
-    WHERE w.type = 'recording' AND w.date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+    {$rec_where_clause}
 ");
-$rec_count_stmt->execute();
+$rec_count_stmt->execute($rec_params);
 $rec_total_records = $rec_count_stmt->fetch(PDO::FETCH_ASSOC)['total'];
 $rec_total_pages = ceil($rec_total_records / $rec_limit);
 
@@ -131,11 +157,11 @@ $stmt = $pdo->prepare("
     SELECT w.*, s.Name as user_name, s.RepID
     FROM web_images w
     LEFT JOIN salesrep s ON w.user_id = s.ID
-    WHERE w.type = 'recording' AND w.date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+    {$rec_where_clause}
     ORDER BY {$rec_sort_column} {$rec_sort_direction}, w.time DESC
     LIMIT {$rec_limit} OFFSET {$rec_offset}
 ");
-$stmt->execute();
+$stmt->execute($rec_params);
 $recordings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get date range for filtering (moved before the user activities query)
@@ -782,6 +808,44 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             background: linear-gradient(to right, #11998e, #38ef7d);
             color: white;
         }
+
+        .filter-item {
+            position: relative;
+            display: inline-block;
+        }
+
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: white;
+            min-width: 200px;
+            box-shadow: 0px 8px 16px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            top: calc(100% + 5px); /* Position below the input with slight gap */
+            left: 0;
+        }
+
+        .dropdown-content .user-option {
+            color: black;
+            padding: 10px;
+            text-decoration: none;
+            display: block;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .dropdown-content .user-option:hover {
+            background-color: #f1f1f1;
+        }
+
+        .dropdown-content .user-option.selected {
+            background-color: #4361ee;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -904,20 +968,68 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div id="recordings" class="tab-content">
             <div class="section">
                 <div class="section-header">
-                    <h2><span class="icon">📹</span> Recent Recordings (Last 7 Days)</h2>
+                    <h2><span class="icon">📹</span> All Recordings</h2>
+                </div>
+                <div class="filters">
+                    <div class="filter-item">
+                        <label for="rec_user_filter">User (Rep ID):</label>
+                        <input type="text" id="rec_user_filter_input" placeholder="Search by Rep ID or Name"
+                               value="<?php
+                                   $selected_user = '';
+                                   if (!empty($rec_user_filter)) {
+                                       $user_stmt = $pdo->prepare("SELECT Name, RepID FROM salesrep WHERE ID = ?");
+                                       $user_stmt->execute([$rec_user_filter]);
+                                       $user_row = $user_stmt->fetch(PDO::FETCH_ASSOC);
+                                       if ($user_row) {
+                                           $selected_user = $user_row['RepID'] . ' - ' . $user_row['Name'];
+                                       }
+                                   }
+                                   echo htmlspecialchars($selected_user);
+                               ?>"
+                               onclick="toggleUserDropdown()"
+                               onkeyup="filterUserOptions()" />
+                        <div id="user-dropdown" class="dropdown-content">
+                            <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold;" onclick="clearUserSelection()">All Users</div>
+                            <?php
+                            // Fetch all users for the filter dropdown
+                            $user_filter_stmt = $pdo->query("SELECT ID, Name, RepID FROM salesrep WHERE Actives = 'YES' ORDER BY RepID");
+                            $filter_users = $user_filter_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                            foreach ($filter_users as $filter_user): ?>
+                                <div class="user-option"
+                                     data-id="<?php echo $filter_user['ID']; ?>"
+                                     data-repid="<?php echo htmlspecialchars($filter_user['RepID']); ?>"
+                                     data-name="<?php echo htmlspecialchars($filter_user['Name']); ?>"
+                                     onclick="selectUser(<?php echo $filter_user['ID']; ?>, '<?php echo addslashes($filter_user['RepID']); ?>', '<?php echo addslashes($filter_user['Name']); ?>')">
+                                    <?php echo htmlspecialchars($filter_user['RepID']); ?> - <?php echo htmlspecialchars($filter_user['Name']); ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <input type="hidden" id="rec_user_filter" name="rec_user_filter" value="<?php echo $rec_user_filter; ?>" />
+                    </div>
+                    <div class="filter-item">
+                        <label for="rec_start_date">Start Date:</label>
+                        <input type="date" id="rec_start_date" name="rec_start_date" value="<?php echo $rec_start_date; ?>">
+                    </div>
+                    <div class="filter-item">
+                        <label for="rec_end_date">End Date:</label>
+                        <input type="date" id="rec_end_date" name="rec_end_date" value="<?php echo $rec_end_date; ?>">
+                    </div>
+                    <button class="apply-filters" onclick="filterRecordings()">Apply Filters</button>
+                    <small style="align-self: center; color: #666;">Leave empty to show all records</small>
                 </div>
                 <div class="section-content">
                     <?php if (count($recordings) > 0): ?>
                         <table>
                             <thead>
                                 <tr>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.ID&rec_sort_dir=<?= $rec_sort_column === 'w.ID' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">ID <?= $rec_sort_column === 'w.ID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=s.Name&rec_sort_dir=<?= $rec_sort_column === 's.Name' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">User <?= $rec_sort_column === 's.Name' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=s.RepID&rec_sort_dir=<?= $rec_sort_column === 's.RepID' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Rep ID <?= $rec_sort_column === 's.RepID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.imgName&rec_sort_dir=<?= $rec_sort_column === 'w.imgName' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Recording Name <?= $rec_sort_column === 'w.imgName' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.date&rec_sort_dir=<?= $rec_sort_column === 'w.date' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Date <?= $rec_sort_column === 'w.date' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.time&rec_sort_dir=<?= $rec_sort_column === 'w.time' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Time <?= $rec_sort_column === 'w.time' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.status&rec_sort_dir=<?= $rec_sort_column === 'w.status' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?>">Status <?= $rec_sort_column === 'w.status' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.ID&rec_sort_dir=<?= $rec_sort_column === 'w.ID' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">ID <?= $rec_sort_column === 'w.ID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=s.Name&rec_sort_dir=<?= $rec_sort_column === 's.Name' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">User <?= $rec_sort_column === 's.Name' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=s.RepID&rec_sort_dir=<?= $rec_sort_column === 's.RepID' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">Rep ID <?= $rec_sort_column === 's.RepID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.imgName&rec_sort_dir=<?= $rec_sort_column === 'w.imgName' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">Recording Name <?= $rec_sort_column === 'w.imgName' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.date&rec_sort_dir=<?= $rec_sort_column === 'w.date' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">Date <?= $rec_sort_column === 'w.date' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.time&rec_sort_dir=<?= $rec_sort_column === 'w.time' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">Time <?= $rec_sort_column === 'w.time' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                    <th><a href="?page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=w.status&rec_sort_dir=<?= $rec_sort_column === 'w.status' && $rec_sort_direction === 'ASC' ? 'DESC' : 'ASC' ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">Status <?= $rec_sort_column === 'w.status' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -941,8 +1053,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                         </td>
                                         <td class="recording-actions">
                                             <?php if ($recording['status'] === 'uploaded'): ?>
-                                                <!-- View button would link to the actual recording if stored on server -->
-                                                <button class="view-btn" disabled>View</button>
+                                                <a href="./admin_view.php?file=<?php echo urlencode($recording['imgName']); ?>" target="_blank" class="view-btn">View</a>
                                                 <a href="./admin_download.php?file=<?php echo urlencode($recording['imgName']); ?>" class="download-btn">Download</a>
                                             <?php else: ?>
                                                 <!-- For local fallback recordings, we could provide a download link if path is known -->
@@ -958,22 +1069,22 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <!-- Pagination -->
                         <div class="pagination">
                             <?php if ($rec_page > 1): ?>
-                                <a href="?page=recordings&recordings_page=<?= $rec_page - 1 ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?>">&laquo; Previous</a>
+                                <a href="?page=recordings&recordings_page=<?= $rec_page - 1 ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">&laquo; Previous</a>
                             <?php endif; ?>
 
                             <?php for ($i = max(1, $rec_page - 2); $i <= min($rec_total_pages, $rec_page + 2); $i++): ?>
-                                <a href="?page=recordings&recordings_page=<?= $i ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?>"
+                                <a href="?page=recordings&recordings_page=<?= $i ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>"
                                    class="<?= $i == $rec_page ? 'active' : '' ?>">
                                     <?= $i ?>
                                 </a>
                             <?php endfor; ?>
 
                             <?php if ($rec_page < $rec_total_pages): ?>
-                                <a href="?page=recordings&recordings_page=<?= $rec_page + 1 ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?>">Next &raquo;</a>
+                                <a href="?page=recordings&recordings_page=<?= $rec_page + 1 ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">Next &raquo;</a>
                             <?php endif; ?>
                         </div>
                     <?php else: ?>
-                        <div class="no-data">No recordings found in the last 7 days</div>
+                        <div class="no-data">No recordings found</div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -1311,6 +1422,102 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             window.location.href = url;
         }
+
+        function filterRecordings() {
+            const startDate = document.getElementById('rec_start_date').value;
+            const endDate = document.getElementById('rec_end_date').value;
+            const userFilter = document.getElementById('rec_user_filter').value;
+            const sortCol = '<?= $rec_sort_column ?>';
+            const sortDir = '<?= $rec_sort_direction ?>';
+
+            let url = '?page=recordings&';
+            if (startDate) {
+                url += `rec_start_date=${startDate}&`;
+            }
+            if (endDate) {
+                url += `rec_end_date=${endDate}&`;
+            }
+            if (userFilter) {
+                url += `rec_user_filter=${userFilter}&`;
+            }
+            if (sortCol) {
+                url += `rec_sort_col=${sortCol}&`;
+            }
+            if (sortDir) {
+                url += `rec_sort_dir=${sortDir}&`;
+            }
+
+            // Remove trailing '&'
+            if (url.endsWith('&')) {
+                url = url.slice(0, -1);
+            }
+
+            window.location.href = url;
+        }
+
+        function toggleUserDropdown() {
+            const dropdown = document.getElementById('user-dropdown');
+            dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function selectUser(userId, repId, name) {
+            const input = document.getElementById('rec_user_filter_input');
+            const hiddenInput = document.getElementById('rec_user_filter');
+
+            input.value = repId + ' - ' + name;
+            hiddenInput.value = userId;
+
+            // Close the dropdown
+            document.getElementById('user-dropdown').style.display = 'none';
+
+            // Trigger the filter function
+            filterRecordings();
+        }
+
+        function clearUserSelection() {
+            const input = document.getElementById('rec_user_filter_input');
+            const hiddenInput = document.getElementById('rec_user_filter');
+
+            input.value = '';
+            hiddenInput.value = '';
+
+            // Close the dropdown
+            document.getElementById('user-dropdown').style.display = 'none';
+
+            // Trigger the filter function
+            filterRecordings();
+        }
+
+        function filterUserOptions() {
+            const input = document.getElementById('rec_user_filter_input');
+            const filter = input.value.toLowerCase();
+            const div = document.getElementById('user-dropdown');
+            const options = div.getElementsByClassName('user-option');
+
+            for (let i = 0; i < options.length; i++) {
+                const repId = options[i].getAttribute('data-repid').toLowerCase();
+                const name = options[i].getAttribute('data-name').toLowerCase();
+
+                if (repId.indexOf(filter) > -1 || name.indexOf(filter) > -1) {
+                    options[i].style.display = '';
+                } else {
+                    options[i].style.display = 'none';
+                }
+            }
+        }
+
+        // Close dropdown if clicked outside
+        document.addEventListener('click', function(event) {
+            const input = document.getElementById('rec_user_filter_input');
+            const dropdown = document.getElementById('user-dropdown');
+
+            if (event.target !== input && !input.contains(event.target) &&
+                event.target !== dropdown && !dropdown.contains(event.target)) {
+                if (dropdown.style.display === 'block') {
+                    dropdown.style.display = 'none';
+                }
+            }
+        });
     </script>
 </body>
 </html>
