@@ -1154,24 +1154,88 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
             });
-            
+
             // Remove active class from all tabs
             document.querySelectorAll('.tab').forEach(tab => {
                 tab.classList.remove('active');
             });
-            
+
             // Show selected tab content
             document.getElementById(tabName).classList.add('active');
-            
+
             // Add active class to clicked tab
             event.target.classList.add('active');
+
+            // Update URL to reflect current tab
+            const tabMap = {
+                'active-users': 'active_users',
+                'recordings': 'recordings',
+                'activities': 'activities',
+                'all-users': 'all_users'
+            };
+
+            const pageParam = tabMap[tabName] || 'active_users';
+            const currentUrl = new URL(window.location);
+            currentUrl.searchParams.set('page', pageParam);
+            window.history.replaceState({}, '', currentUrl);
         }
+
+        // Function to activate the correct tab based on URL parameters
+        function activateTabBasedOnURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const currentPage = urlParams.get('page');
+
+            // Remove active class from all tabs
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+
+            let activeTabId = 'active-users'; // Default tab
+
+            // Determine which tab should be active based on the page parameter
+            if (currentPage === 'recordings') {
+                activeTabId = 'recordings';
+            } else if (currentPage === 'activities') {
+                activeTabId = 'activities';
+            } else if (currentPage === 'all_users') {
+                activeTabId = 'all-users';
+            } else {
+                activeTabId = 'active-users'; // Default
+            }
+
+            // Activate the correct tab
+            document.getElementById(activeTabId).classList.add('active');
+
+            // Find the corresponding tab element and activate it
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => {
+                const tabText = tab.textContent.trim();
+                if (
+                    (activeTabId === 'active-users' && tabText.includes('Active Users')) ||
+                    (activeTabId === 'recordings' && tabText.includes('Recordings')) ||
+                    (activeTabId === 'activities' && tabText.includes('Activities')) ||
+                    (activeTabId === 'all-users' && tabText.includes('All Users'))
+                ) {
+                    tab.classList.add('active');
+                }
+            });
+        }
+
+        // Call the function when the page loads
+        window.onload = function() {
+            activateTabBasedOnURL();
+        };
         
         function applyFilters() {
             const startDate = document.getElementById('start_date').value;
             const endDate = document.getElementById('end_date').value;
 
-            let url = '?';
+            let url = '?page=activities&';
             if (startDate) {
                 url += `start_date=${startDate}&`;
             }
@@ -1194,7 +1258,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             const sortCol = '<?= $sort_column ?>';
             const sortDir = '<?= $sort_direction ?>';
 
-            let url = '?';
+            let url = '?page=active_users&';
             if (statusFilter) {
                 url += `user_status=${statusFilter}&`;
             }
@@ -1223,7 +1287,7 @@ $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             const sortCol = '<?= $all_users_sort_column ?>';
             const sortDir = '<?= $all_users_sort_direction ?>';
 
-            let url = '?';
+            let url = '?page=all_users&';
             if (accountStatusFilter) {
                 url += `account_status=${accountStatusFilter}&`;
             }
