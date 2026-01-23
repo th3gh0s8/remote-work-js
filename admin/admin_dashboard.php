@@ -22,7 +22,21 @@ try {
 
 // Fetch active users (users who have logged in recently) - each user only once
 $stmt = $pdo->prepare("
-    SELECT s.*, MAX(ua.rDateTime) as last_activity
+    SELECT s.*, MAX(ua.rDateTime) as last_activity,
+           CASE
+               WHEN EXISTS (
+                   SELECT 1 FROM user_activity ua2
+                   WHERE ua2.salesrepTb = s.ID
+                   AND ua2.activity_type = 'login'
+                   AND ua2.rDateTime > COALESCE((
+                       SELECT MAX(ua3.rDateTime)
+                       FROM user_activity ua3
+                       WHERE ua3.salesrepTb = s.ID
+                       AND ua3.activity_type IN ('logout', 'check-out')
+                   ), '1900-01-01')
+               ) THEN 'online'
+               ELSE 'offline'
+           END as current_status
     FROM salesrep s
     INNER JOIN user_activity ua ON s.ID = ua.salesrepTb
     WHERE ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
@@ -81,8 +95,29 @@ $stmt = $pdo->prepare("
 $stmt->execute();
 $recordings_today = $stmt->fetch(PDO::FETCH_ASSOC)['today_count'];
 
-// Fetch all users for the user management section
-$stmt = $pdo->query("SELECT * FROM salesrep ORDER BY ID DESC");
+// Fetch all users for the user management section with online status
+$stmt = $pdo->prepare("
+    SELECT s.*,
+           CASE
+               WHEN EXISTS (
+                   SELECT 1 FROM user_activity ua
+                   WHERE ua.salesrepTb = s.ID
+                   AND ua.activity_type = 'login'
+                   AND ua.rDateTime > COALESCE((
+                       SELECT MAX(ua2.rDateTime)
+                       FROM user_activity ua2
+                       WHERE ua2.salesrepTb = s.ID
+                       AND ua2.activity_type IN ('logout', 'check-out')
+                   ), '1900-01-01')
+                   AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+               ) THEN 'online'
+               ELSE 'offline'
+           END as current_status,
+           (SELECT MAX(rDateTime) FROM user_activity WHERE salesrepTb = s.ID) as last_activity
+    FROM salesrep s
+    ORDER BY s.ID DESC
+");
+$stmt->execute();
 $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get date range for filtering
@@ -422,7 +457,13 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
                                         <td><?php echo htmlspecialchars($user['Name']); ?></td>
                                         <td><?php echo htmlspecialchars($user['br_id']); ?></td>
                                         <td><?php echo htmlspecialchars($user['last_activity']); ?></td>
-                                        <td><span class="user-status-active">Active</span></td>
+                                        <td>
+                                            <?php if ($user['current_status'] === 'online'): ?>
+                                                <span class="user-status-active">Online</span>
+                                            <?php else: ?>
+                                                <span class="user-status-inactive">Offline</span>
+                                            <?php endif; ?>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -578,7 +619,11 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
                                         <td><?php echo htmlspecialchars($user['join_date']); ?></td>
                                         <td>
                                             <?php if ($user['Actives'] === 'YES'): ?>
-                                                <span class="user-status-active">Active</span>
+                                                <?php if ($user['current_status'] === 'online'): ?>
+                                                    <span class="user-status-active">Online</span>
+                                                <?php else: ?>
+                                                    <span class="user-status-inactive">Offline</span>
+                                                <?php endif; ?>
                                             <?php else: ?>
                                                 <span class="user-status-inactive">Inactive</span>
                                             <?php endif; ?>
@@ -621,9 +666,9 @@ $end_date = $_GET['end_date'] ?? date('Y-m-d');
         function applyFilters() {
             const startDate = document.getElementById('start_date').value;
             const endDate = document.getElementById('end_date').value;
-            
+
             // Reload the page with the filter parameters
-            window.location.href = `./admin_dashboard.php?start_date=${startDate}&end_date=${endDate}`;
+            window.location.href = `?start_date=${startDate}&end_date=${endDate}`;
         }
     </script>
 </body>
