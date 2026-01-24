@@ -17,7 +17,13 @@ const db = new DatabaseConnection();
 let sessionManager;
 
 /**
- * Creates the tray context menu based on the current login state
+ * Builds the tray context menu reflecting the current authentication and window visibility state.
+ *
+ * The menu includes actions to show or hide the active window (main or login, determined by
+ * login state), account actions (Login, Logout, Switch Account) when appropriate, and Quit.
+ *
+ * @param {boolean} isLoggedIn - True if a user session exists; controls which window and account actions are presented.
+ * @returns {Menu} The Electron Menu instance constructed for the tray context menu.
  */
 function createTrayMenu(isLoggedIn) {
   // Determine which window is currently active for show/hide functionality
@@ -223,7 +229,9 @@ function createTrayMenu(isLoggedIn) {
 }
 
 /**
- * Updates the tray menu based on the current login state
+ * Rebuilds and applies the tray context menu to reflect the current authentication state.
+ *
+ * Uses the current logged-in user state to construct a menu and sets it on the existing tray icon.
  */
 function updateTrayMenu() {
   if (tray) {
@@ -234,7 +242,7 @@ function updateTrayMenu() {
 }
 
 /**
- * Refreshes the tray menu to reflect current window visibility state
+ * Update the tray's context menu to match the current login and window visibility state.
  */
 function refreshTrayMenu() {
   if (tray) {
@@ -308,10 +316,13 @@ function createWindow() {
 let tray = null;
 
 /**
- * Create and show the login window used for user authentication.
+ * Create and show the application's login window.
  *
- * The window is configured for the application's login UI, loads "login.html",
- * and clears the module-level `loginWindow` reference when closed.
+ * Clears all session data before showing, reuses and focuses an existing login window if present,
+ * and creates a non-resizable BrowserWindow that loads "login.html" when needed.
+ *
+ * The function updates the tray menu shortly after the window is shown or hidden and clears the
+ * module-level `loginWindow` reference when the window is closed.
  */
 async function createLoginWindow() {
   // Check if login window already exists and is open
@@ -1241,7 +1252,15 @@ ipcMain.handle('get-network-usage', async (event) => {
   return getNetworkUsage();
 });
 
-// Function to start network usage monitoring
+/**
+ * Start periodic network usage monitoring and send updates to the renderer.
+ *
+ * Clears any existing monitoring interval, then schedules a task every second
+ * that obtains current network statistics and sends them to the main window's
+ * renderer via the 'network-usage-update' IPC channel when the window is present.
+ *
+ * Errors encountered while obtaining or sending updates are caught and logged.
+ */
 function startNetworkMonitoring() {
   if (networkUsageInterval) {
     clearInterval(networkUsageInterval);
