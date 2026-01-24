@@ -41,7 +41,12 @@ interface RecordingChunk {
 // Define the global types for the application
 declare global {
   interface Window {
-    electronAPI?: any;
+    electronAPI: {
+      saveRecording: (buffer: any, filename: string) => Promise<any>;
+      getSources: () => Promise<any>;
+      onWindowShown: (callback: () => void) => void;
+      onWindowHidden: (callback: () => void) => void;
+    };
     checkInBtn?: HTMLElement;
     breakBtn?: HTMLElement;
     checkOutBtn?: HTMLElement;

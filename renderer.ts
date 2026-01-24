@@ -21,10 +21,15 @@ let breakStartTime: Date | null = null;
 let mediaRecorder: MediaRecorder | null = null;
 let globalStream: MediaStream | null = null;
 
+// Global variables for recording segmentation
+let recordingChunks: Blob[] = [];
+let segmentStartTime: Date | null = null;
+
 // DOM elements
 let checkInBtn: HTMLButtonElement | null = null;
 let breakBtn: HTMLButtonElement | null = null;
 let checkOutBtn: HTMLButtonElement | null = null;
+
 let logoutBtn: HTMLButtonElement | null = null;
 let statusText: HTMLElement | null = null;
 
@@ -304,16 +309,84 @@ async function startScreenRecording(): Promise<void> {
 
     // Create and configure MediaRecorder
     mediaRecorder = new MediaRecorder(stream, recordingOptions);
-    
+
+    // Array to store recording chunks for 1-minute segments
+    let recordingChunks: Blob[] = [];
+    let segmentStartTime: Date | null = null;
+
     mediaRecorder.ondataavailable = (event: BlobEvent) => {
       if (event.data && event.data.size > 0) {
         console.log(`Recording chunk available: ${event.data.size} bytes`);
+        recordingChunks.push(event.data);
+
+        // Check if 1 minute has passed since the start of the current segment
+        if (segmentStartTime) {
+          const elapsedSeconds = (new Date().getTime() - segmentStartTime.getTime()) / 1000;
+          if (elapsedSeconds >= 60) { // 60 seconds = 1 minute
+            // Create a blob from the accumulated chunks
+            const segmentBlob = new Blob(recordingChunks, { type: 'video/webm' });
+
+            // Generate filename with timestamp for this segment
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const segmentFilename = `recording_${timestamp}_segment.webm`;
+
+            // Convert blob to buffer for saving
+            const reader = new FileReader();
+            reader.onload = () => {
+              const buffer = Buffer.from(reader.result as ArrayBuffer);
+              // Send the completed segment to the main process for saving
+              ipcRenderer.invoke('save-recording', buffer, segmentFilename)
+                .then((result: any) => {
+                  console.log(`Recording segment saved to: ${result.filePath}`);
+                })
+                .catch((error: any) => {
+                  console.error(`Error saving recording segment: ${error.message}`);
+                });
+            };
+            reader.readAsArrayBuffer(segmentBlob);
+
+            // Start a new segment
+            recordingChunks = []; // Clear the chunks array
+            segmentStartTime = new Date(); // Reset the start time
+          }
+        } else {
+          // This is the start of the first segment
+          segmentStartTime = new Date();
+        }
       }
     };
 
     mediaRecorder.onstop = async () => {
       console.log('Recording stopped');
-      
+
+      // Process any remaining chunks as a final segment
+      if (recordingChunks.length > 0 && segmentStartTime) {
+        const segmentBlob = new Blob(recordingChunks, { type: 'video/webm' });
+
+        // Generate filename with timestamp for this segment
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const segmentFilename = `recording_${timestamp}_segment.webm`;
+
+        // Convert blob to buffer for saving
+        const reader = new FileReader();
+        reader.onload = () => {
+          const buffer = Buffer.from(reader.result as ArrayBuffer);
+          // Send the final segment to the main process for saving
+          ipcRenderer.invoke('save-recording', buffer, segmentFilename)
+            .then((result: any) => {
+              console.log(`Final recording segment saved to: ${result.filePath}`);
+            })
+            .catch((error: any) => {
+              console.error(`Error saving final recording segment: ${error.message}`);
+            });
+        };
+        reader.readAsArrayBuffer(segmentBlob);
+
+        // Clear the chunks array
+        recordingChunks = [];
+        segmentStartTime = null;
+      }
+
       // Release the stream when recording stops
       if (globalStream) {
         const tracks = globalStream.getTracks();
@@ -329,10 +402,14 @@ async function startScreenRecording(): Promise<void> {
       }
     };
 
+    // Reset the recording segmentation variables when starting a new recording
+    recordingChunks = [];
+    segmentStartTime = null;
+
     // Start recording
     mediaRecorder.start();
     console.log('Recording started');
-    
+
     if (statusText) {
       statusText.textContent = 'Screen recording in progress...';
     }
@@ -349,7 +426,11 @@ async function stopScreenRecording(): Promise<void> {
     mediaRecorder.stop();
     console.log('Recording stopped');
   }
-  
+
+  // Reset the recording segmentation variables
+  recordingChunks = [];
+  segmentStartTime = null;
+
   // Release the media stream if it exists
   if (globalStream) {
     const tracks = globalStream.getTracks();
