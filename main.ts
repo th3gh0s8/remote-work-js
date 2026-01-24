@@ -27,7 +27,11 @@ let loggedInUser: any = null;
 // Variables to track the last known window state for comparison
 let lastKnownWindowState: boolean | null = null;
 
-// Function to monitor and update tray menu based on window state
+/**
+ * Monitors the currently relevant window (main when logged in, login otherwise) and updates the tray context menu when that window's visible/minimized state changes.
+ *
+ * When the observed visibility/minimized state differs from the last known state, the function rebuilds and sets the tray's context menu to reflect the new window state.
+ */
 function monitorWindowState() {
   // Check the current window state
   let targetWindow = null;
@@ -61,11 +65,11 @@ setInterval(monitorWindowState, 200); // Check every 200ms
 
 
 /**
- * Creates the main application BrowserWindow configured for screen capture and loads the renderer.
- * Sets up a BrowserWindow with Node integration and permissive media settings, configures session
- * handlers to allow display media and desktop capture, auto-selects a desktop source when requested,
- * loads index.html into the window, opens DevTools for debugging, and clears the global window
- * reference when the window is closed.
+ * Creates and shows the main application window configured for screen capture.
+ *
+ * Configures webPreferences to allow Node integration and autoplay, grants display-media and media
+ * permissions for desktop capture, loads the renderer (index.html), opens DevTools, and clears the
+ * global `mainWindow` reference (and stops network monitoring) when the window is closed.
  */
 function createWindow(): void {
   const { screen } = require('electron');
@@ -196,7 +200,10 @@ function setupTray(): void {
 
 
 /**
- * Creates the tray context menu based on the current login state
+ * Build a tray context menu reflecting current window visibility and authentication state.
+ *
+ * @param isLoggedIn - When `true`, include the authentication actions for a logged-in session (Login, separator, Logout); when `false`, include only the Login action. The final menu also contains Show App or Hide App depending on the currently targeted window's visibility and a Quit item.
+ * @returns An array of Electron MenuItemConstructorOptions representing the constructed tray menu items in their display order.
  */
 function createTrayMenu(isLoggedIn: boolean): Array<Electron.MenuItemConstructorOptions> {
   // Determine current window state to show appropriate buttons
@@ -397,9 +404,13 @@ function updateTrayMenu(): void {
 }
 
 /**
- * Creates and shows the login window used for user authentication.
- * The window is configured for the application's login UI, loads "login.html",
- * and clears the module-level `loginWindow` reference when closed.
+ * Create and show the login window for user authentication.
+ *
+ * If a login window already exists, restores and focuses it instead of creating a new one.
+ * Clears stored session data before showing the window and clears the module-level
+ * `loginWindow` reference when the window is closed.
+ *
+ * @returns Resolves when the login window has been created or focused
  */
 async function createLoginWindow(): Promise<void> {
   // Check if login window already exists and is open
@@ -437,13 +448,13 @@ async function createLoginWindow(): Promise<void> {
 }
 
 /**
- * Record a user activity in the database and update network usage estimates.
- * Inserts a user activity row (salesrepTb, activity_type, duration, timestamp) and increments global network usage counters based on estimated query/response sizes.
- * @param {string} activityType - The activity identifier (e.g., "login", "check-in", "break-start", "break-end", "check-out").
- * @param {number} [duration=0] - Optional duration in seconds associated with the activity (use 0 when not applicable).
- * @returns {{ success: true, id: number } | { success: false, error: string } | undefined}
- *   If the operation runs: an object with `success: true` and the inserted row `id`, or `success: false` with an `error` message on failure.
- *   Returns `undefined` immediately if there is no active database connection or no logged-in user.
+ * Log a user activity to the database and update global estimated network usage counters.
+ *
+ * Updates totalBytesUploaded/totalBytesDownloaded with estimated sizes for the query and response, then inserts a row into `user_activity`.
+ *
+ * @param activityType - Activity identifier (e.g., "login", "check-in", "break-start", "break-end", "check-out")
+ * @param duration - Optional duration in seconds associated with the activity; use `0` when not applicable
+ * @returns `{ success: true, id: number }` on successful insert, `{ success: false, error: string }` if the database operation fails, or `undefined` if there is no active database connection or no logged-in user
  */
 async function logUserActivity(activityType: string, duration: number = 0): Promise<{ success: boolean; id?: number; error?: string } | undefined> {
   if (!db.connection || !loggedInUser) {
@@ -1043,7 +1054,21 @@ ipcMain.handle('auto-save-recording', async (event, buffer: Buffer, filename: st
   }
 });
 
-// Function to get network usage statistics
+/**
+ * Gather current network totals and per-second transfer speeds, updating internal counters.
+ *
+ * Retrieves network interface statistics and computes total downloaded/uploaded bytes and
+ * current download/upload speeds in KB/s. Updates global tracking variables (`previousRxBytes`,
+ * `previousTxBytes`, `lastNetworkCheckTime`) and accumulates `totalBytesDownloaded` and
+ * `totalBytesUploaded`. If system statistics cannot be read, computes speeds from previously
+ * tracked totals as a fallback.
+ *
+ * @returns An object containing:
+ * - `totalDownloaded`: the accumulated total downloaded bytes,
+ * - `totalUploaded`: the accumulated total uploaded bytes,
+ * - `downloadSpeed`: current download speed in KB/s (rounded),
+ * - `uploadSpeed`: current upload speed in KB/s (rounded)
+ */
 async function getNetworkUsage() {
   try {
     // Get actual network interface statistics using systeminformation
@@ -1122,7 +1147,13 @@ ipcMain.handle('get-network-usage', async (event) => {
   return getNetworkUsage();
 });
 
-// Function to start network usage monitoring
+/**
+ * Starts a 1-second interval that collects network usage and forwards it to the renderer.
+ *
+ * Clears any existing monitoring interval, then every second retrieves network metrics via
+ * getNetworkUsage() and sends them to the main window under the 'network-usage-update' IPC channel
+ * if the main window still exists.
+ */
 function startNetworkMonitoring() {
   if (networkUsageInterval) {
     clearInterval(networkUsageInterval);

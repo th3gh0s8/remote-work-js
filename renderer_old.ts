@@ -341,6 +341,12 @@ async function startScreenRecording(): Promise<void> {
   }
 }
 
+/**
+ * Stops an active screen recording and releases the captured media tracks.
+ *
+ * If a `MediaRecorder` is currently recording, it is stopped. Any existing global
+ * `MediaStream` has all tracks stopped and the global reference cleared.
+ */
 async function stopScreenRecording(): Promise<void> {
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     mediaRecorder.stop();
@@ -357,12 +363,22 @@ async function stopScreenRecording(): Promise<void> {
   }
 }
 
-// Helper function to format time
+/**
+ * Format a Date as a two-digit hour and minute time string.
+ *
+ * @param date - The Date to format
+ * @returns The time portion of `date` as `HH:MM` with two-digit hour and minute according to the runtime locale
+ */
 function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// Helper function to format seconds to HH:MM:SS
+/**
+ * Format a duration in seconds as a clock time string in HH:MM:SS.
+ *
+ * @param seconds - Total number of seconds; fractional part is discarded
+ * @returns A string formatted as `HH:MM:SS` with two-digit hours, minutes, and seconds
+ */
 function formatSeconds(seconds: number): string {
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
