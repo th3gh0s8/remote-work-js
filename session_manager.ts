@@ -1,8 +1,20 @@
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+// session_manager.ts - Session management with TypeScript
+
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+interface SessionData {
+  user: any;
+  timestamp: number;
+  validationToken: string;
+}
 
 class SessionManager {
+  private sessionDir: string;
+  private sessionFile: string;
+  private readonly sessionFileName = 'session.json';
+
   constructor() {
     // Create a secure location for session data
     this.sessionDir = path.join(os.homedir(), '.xploree');
@@ -16,13 +28,13 @@ class SessionManager {
 
   /**
    * Save session data to a secure file
-   * @param {Object} userData - User information to store
+   * @param {any} userData - User information to store
    * @returns {Promise<boolean>} - True if successful, false otherwise
    */
-  async saveSession(userData) {
+  async saveSession(userData: any): Promise<boolean> {
     try {
       // Prepare session data with timestamp
-      const sessionData = {
+      const sessionData: SessionData = {
         user: userData,
         timestamp: Date.now(),
         // Add a simple validation token to prevent tampering
@@ -37,7 +49,7 @@ class SessionManager {
       );
 
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving session:', error);
       return false;
     }
@@ -45,9 +57,9 @@ class SessionManager {
 
   /**
    * Load session data from file
-   * @returns {Promise<Object|null>} - Session data if valid, null otherwise
+   * @returns {Promise<any|null>} - Session data if valid, null otherwise
    */
-  async loadSession() {
+  async loadSession(): Promise<any | null> {
     try {
       if (!fs.existsSync(this.sessionFile)) {
         return null;
@@ -55,7 +67,7 @@ class SessionManager {
 
       // Read session data from file
       const rawData = await fs.promises.readFile(this.sessionFile, 'utf8');
-      const sessionData = JSON.parse(rawData);
+      const sessionData: SessionData = JSON.parse(rawData);
 
       // Validate the session data
       if (this.validateSession(sessionData)) {
@@ -65,7 +77,7 @@ class SessionManager {
         await this.clearSession();
         return null;
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading session:', error);
       return null;
     }
@@ -73,10 +85,10 @@ class SessionManager {
 
   /**
    * Validate session data integrity
-   * @param {Object} sessionData - Session data to validate
+   * @param {SessionData} sessionData - Session data to validate
    * @returns {boolean} - True if valid, false otherwise
    */
-  validateSession(sessionData) {
+  validateSession(sessionData: SessionData): boolean {
     if (!sessionData || !sessionData.user || !sessionData.timestamp || !sessionData.validationToken) {
       console.log('Session validation failed: Missing required fields');
       return false;
@@ -104,10 +116,10 @@ class SessionManager {
 
   /**
    * Generate a simple validation token for session data
-   * @param {Object} userData - User data to generate token for
+   * @param {any} userData - User data to generate token for
    * @returns {string} - Validation token
    */
-  generateValidationToken(userData) {
+  generateValidationToken(userData: any): string {
     // Create a simple hash-like token based on user data
     // This is not cryptographically secure but provides basic tamper detection
     // NOTE: We don't include timestamp here to ensure consistent token generation
@@ -131,34 +143,34 @@ class SessionManager {
    * Clear the stored session
    * @returns {Promise<boolean>} - True if successful, false otherwise
    */
-  async clearSession() {
+  async clearSession(): Promise<boolean> {
     try {
       if (fs.existsSync(this.sessionFile)) {
         await fs.promises.unlink(this.sessionFile);
       }
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error clearing session:', error);
       return false;
     }
   }
-
+  
   /**
    * Clear all session data including any cached data
    * @returns {Promise<boolean>} - True if successful, false otherwise
    */
-  async clearAllSessionData() {
+  async clearAllSessionData(): Promise<boolean> {
     try {
       // Clear the main session file
       if (fs.existsSync(this.sessionFile)) {
         await fs.promises.unlink(this.sessionFile);
       }
-
+      
       // Additional cleanup can be added here if needed
       // For example, clearing any temporary session data
-
+      
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error clearing all session data:', error);
       return false;
     }
@@ -168,10 +180,10 @@ class SessionManager {
    * Check if a valid session exists
    * @returns {Promise<boolean>} - True if valid session exists, false otherwise
    */
-  async hasValidSession() {
+  async hasValidSession(): Promise<boolean> {
     const session = await this.loadSession();
     return session !== null;
   }
 }
 
-module.exports = SessionManager;
+export default SessionManager;

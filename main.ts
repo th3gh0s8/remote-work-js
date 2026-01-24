@@ -1,84 +1,294 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, net } = require('electron');
-const path = require('path');
-const si = require('systeminformation');
-const DatabaseConnection = require('./db_connection');
-const SessionManager = require('./session_manager');
+// main.ts - Main process for Electron application with TypeScript
+
+import { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, net } from 'electron';
+import * as path from 'path';
+import * as si from 'systeminformation';
+import DatabaseConnection from './db_connection';
+import SessionManager from './session_manager';
 
 // Variables to track network usage
 let totalBytesDownloaded = 0;
 let totalBytesUploaded = 0;
 let previousBytesDownloaded = 0;
 let previousBytesUploaded = 0;
-let networkUsageInterval = null;
+let networkUsageInterval: NodeJS.Timeout | null = null;
 
-let mainWindow;
-let loginWindow = null;
+let mainWindow: BrowserWindow | null = null;
+let loginWindow: BrowserWindow | null = null;
 const db = new DatabaseConnection();
-let sessionManager;
+let sessionManager: SessionManager;
+
+// Global variable for the tray
+let tray: Tray | null = null;
+
+// Store logged-in user information
+let loggedInUser: any = null;
+
+// Variables to track the last known window state for comparison
+let lastKnownWindowState: boolean | null = null;
+
+// Function to monitor and update tray menu based on window state
+function monitorWindowState() {
+  // Check the current window state
+  let targetWindow = null;
+  let currentState = false;
+
+  if (loggedInUser) {
+    targetWindow = mainWindow;
+  } else {
+    targetWindow = loginWindow;
+  }
+
+  if (targetWindow && !targetWindow.isDestroyed()) {
+    currentState = targetWindow.isVisible() && !targetWindow.isMinimized();
+  }
+
+  // Compare with the last known state
+  if (lastKnownWindowState !== currentState) {
+    // State has changed, update the tray menu
+    lastKnownWindowState = currentState;
+    if (tray) {
+      const isLoggedIn = !!loggedInUser;
+      const contextMenu = Menu.buildFromTemplate(createTrayMenu(isLoggedIn));
+      tray.setContextMenu(contextMenu);
+    }
+  }
+}
+
+// Set up a periodic check for window state changes
+setInterval(monitorWindowState, 200); // Check every 200ms
+
+
+
+/**
+ * Creates the main application BrowserWindow configured for screen capture and loads the renderer.
+ * Sets up a BrowserWindow with Node integration and permissive media settings, configures session
+ * handlers to allow display media and desktop capture, auto-selects a desktop source when requested,
+ * loads index.html into the window, opens DevTools for debugging, and clears the global window
+ * reference when the window is closed.
+ */
+function createWindow(): void {
+  const { screen } = require('electron');
+
+  mainWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+      // Enable screen capture permissions
+      autoplayPolicy: 'no-user-gesture-required' as any // Cast to any to bypass TypeScript check
+    },
+    icon: path.join(__dirname, '..', 'assets', 'icon.png') // Optional: Add an icon
+  });
+
+  // Configure session to allow screen capture
+  const ses = mainWindow.webContents.session;
+  ses.setDisplayMediaRequestHandler((request) => {
+    // For screen capture, we'll allow access to screen sources
+    return Promise.resolve({ video: true, audio: false });
+  });
+
+  // Enable media access for screen capture
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission) => {
+    if (permission === 'media' || permission === 'display-capture') {
+      return true; // Grant media and desktop capture access
+    } else {
+      return false; // Deny other permissions
+    }
+  });
+
+  // Additional configuration for screen capture compatibility
+  // Note: 'select-desktop-capture-source' is not a standard Electron event
+  // We'll use the newer desktopCapturer API instead
+
+  mainWindow.loadFile('index.html');
+
+  // Open DevTools for debugging screen capture
+  mainWindow.webContents.openDevTools({ mode: 'detach' });
+
+  // Release reference so the window can be garbage collected
+  mainWindow.on('closed', () => {
+    // Clear network monitoring interval when window is closed
+    if (networkUsageInterval) {
+      clearInterval(networkUsageInterval);
+      networkUsageInterval = null;
+    }
+    mainWindow = null;
+  });
+}
+
+// System tray functionality
+/**
+ * Creates and manages the system tray icon and menu
+ */
+function setupTray(): void {
+  // Create tray icon - look for assets in the parent directory since compiled JS is in dist/
+  const iconPath = path.join(__dirname, '..', 'assets', 'logo.jpg');
+  const iconImage = nativeImage.createFromPath(iconPath);
+
+  // If icon doesn't exist, use a default icon
+  tray = new Tray(iconImage.isEmpty() ? path.join(__dirname, '..', 'assets', 'icon.png') : iconPath);
+
+  // Update tray tooltip based on login status
+  if (loggedInUser) {
+    tray.setToolTip(`XPloyee - Logged In as ${loggedInUser.Name || loggedInUser.RepID}`);
+  } else {
+    tray.setToolTip('XPloyee - Logged Out');
+  }
+
+  // Create context menu
+  const contextMenu = Menu.buildFromTemplate(createTrayMenu(!!loggedInUser));
+  tray.setContextMenu(contextMenu);
+  if (tray) {
+    tray.setTitle('XPloyee');
+  }
+
+  // Handle tray icon single click (toggle visibility)
+  tray.removeAllListeners('click'); // Remove any existing listeners to prevent duplicates
+  tray.on('click', () => {
+    if (loggedInUser) {
+      // User is logged in, toggle main window visibility
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isVisible()) {
+          // Window is visible, hide it (minimize to tray)
+          mainWindow.hide();
+        } else {
+          // Window is hidden, show it
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+          }
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      } else {
+        // Main window doesn't exist, create it
+        createWindow();
+      }
+    } else {
+      // User is not logged in, toggle login window visibility
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        if (loginWindow.isVisible()) {
+          // Window is visible, hide it
+          loginWindow.hide();
+        } else {
+          // Window is hidden, show it
+          if (loginWindow.isMinimized()) {
+            loginWindow.restore();
+          }
+          loginWindow.show();
+          loginWindow.focus();
+        }
+      } else {
+        // Login window doesn't exist, create it
+        createLoginWindow();
+      }
+    }
+    // Update the tray menu to reflect the new visibility state
+    setTimeout(() => {
+      updateTrayMenu();
+    }, 50); // Small delay to ensure the window state is updated
+  });
+
+
+
+}
+
 
 /**
  * Creates the tray context menu based on the current login state
  */
-function createTrayMenu(isLoggedIn) {
-  const menuItems = [
-    {
+function createTrayMenu(isLoggedIn: boolean): Array<Electron.MenuItemConstructorOptions> {
+  // Determine current window state to show appropriate buttons
+  let targetWindow = null;
+  let isWindowVisible = false;
+
+  if (loggedInUser) {
+    targetWindow = mainWindow;
+  } else {
+    targetWindow = loginWindow;
+  }
+
+  if (targetWindow && !targetWindow.isDestroyed()) {
+    isWindowVisible = targetWindow.isVisible() && !targetWindow.isMinimized();
+  }
+
+  const menuItems: Array<Electron.MenuItemConstructorOptions> = [];
+
+  // Add Show App button if window is not visible
+  if (!isWindowVisible) {
+    menuItems.push({
       label: 'Show App',
       click: () => {
-        if (isLoggedIn) {
-          // User is logged in, toggle main window
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            if (mainWindow.isVisible()) {
-              mainWindow.hide();
-            } else {
-              if (mainWindow.isMinimized()) {
-                mainWindow.restore();
-              }
-              mainWindow.show();
-              mainWindow.focus();
-            }
-          }
+        // Determine which window to operate on based on login state
+        let targetWindow = null;
+
+        if (loggedInUser) {
+          // User is logged in, use main window
+          targetWindow = mainWindow;
         } else {
-          // User is not logged in, toggle login window
-          if (loginWindow && !loginWindow.isDestroyed()) {
-            if (loginWindow.isVisible()) {
-              loginWindow.hide();
-            } else {
-              if (loginWindow.isMinimized()) {
-                loginWindow.restore();
-              }
-              loginWindow.show();
-              loginWindow.focus();
-            }
+          // User is not logged in, use login window
+          targetWindow = loginWindow;
+        }
+
+        if (targetWindow && !targetWindow.isDestroyed()) {
+          // Show the window
+          if (targetWindow.isMinimized()) {
+            targetWindow.restore();
+          }
+          targetWindow.show();
+          targetWindow.focus();
+        } else {
+          // No appropriate window exists, create it
+          if (loggedInUser) {
+            // User is logged in, create main window
+            createWindow();
           } else {
-            // Login window doesn't exist, create it
+            // User is not logged in, create login window
             createLoginWindow();
           }
         }
+        // Update the tray menu immediately to reflect the new state
+        setImmediate(() => {
+          updateTrayMenu();
+        });
       }
-    }
-  ];
+    });
+  }
+
+  // Add Hide App button if window is visible
+  if (isWindowVisible) {
+    menuItems.push({
+      label: 'Hide App',
+      click: () => {
+        // Determine which window to operate on based on login state
+        let targetWindow = null;
+
+        if (loggedInUser) {
+          // User is logged in, use main window
+          targetWindow = mainWindow;
+        } else {
+          // User is not logged in, use login window
+          targetWindow = loginWindow;
+        }
+
+        if (targetWindow && !targetWindow.isDestroyed()) {
+          // Hide the window
+          targetWindow.hide();
+        }
+        // Update the tray menu immediately to reflect the new state
+        setImmediate(() => {
+          updateTrayMenu();
+        });
+      }
+    });
+  }
 
   if (isLoggedIn) {
     menuItems.push(
       {
-        label: 'Switch Account',
+        label: 'Login',
         click: async () => {
-          // Notify renderer to reset all states before logging out
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('reset-all-states-before-logout');
-            // Wait a brief moment for the renderer to process the reset command
-            await new Promise(resolve => setTimeout(resolve, 500));
-          }
-
-          // Log logout activity
-          if (loggedInUser) {
-            await logUserActivity('logout');
-          }
-
-          // Clear the logged in user and all session data
-          loggedInUser = null;
-          await sessionManager.clearAllSessionData();
-
           // Update tray tooltip to indicate logged out status
           if (tray) {
             tray.setToolTip('XPloyee - Logged Out');
@@ -87,8 +297,13 @@ function createTrayMenu(isLoggedIn) {
           // Update the tray menu to reflect logged out state
           updateTrayMenu();
 
-          // Close main window and show login window
+          // If there's a main window, close it first
           if (mainWindow && !mainWindow.isDestroyed()) {
+            // Notify renderer to reset all states
+            mainWindow.webContents.send('reset-all-states-before-logout');
+            // Wait a brief moment for the renderer to process the reset command
+            await new Promise(resolve => setTimeout(resolve, 500));
+
             mainWindow.close();
           }
 
@@ -104,11 +319,6 @@ function createTrayMenu(isLoggedIn) {
             mainWindow.webContents.send('reset-all-states-before-logout');
             // Wait a brief moment for the renderer to process the reset command
             await new Promise(resolve => setTimeout(resolve, 500));
-          }
-
-          // Log logout activity
-          if (loggedInUser) {
-            await logUserActivity('logout');
           }
 
           // Clear the logged in user and all session data
@@ -172,161 +382,26 @@ function createTrayMenu(isLoggedIn) {
     }
   );
 
-  return Menu.buildFromTemplate(menuItems);
+  return menuItems;
 }
 
 /**
  * Updates the tray menu based on the current login state
  */
-function updateTrayMenu() {
+function updateTrayMenu(): void {
   if (tray) {
     const isLoggedIn = !!loggedInUser;
-    const contextMenu = createTrayMenu(isLoggedIn);
+    const contextMenu = Menu.buildFromTemplate(createTrayMenu(isLoggedIn));
     tray.setContextMenu(contextMenu);
   }
 }
 
 /**
- * Sets up tray event handlers based on the current login state
- */
-function setupTrayEventHandlers() {
-  if (!tray) return;
-
-  // Remove any existing tray event listeners to prevent duplicates
-  tray.removeAllListeners('click');
-  tray.removeAllListeners('double-click');
-
-  // Handle tray icon single click (toggle behavior)
-  tray.on('click', () => {
-    if (loggedInUser) {
-      // User is logged in, toggle main window
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isVisible()) {
-          mainWindow.hide();
-        } else {
-          if (mainWindow.isMinimized()) {
-            mainWindow.restore();
-          }
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      }
-    } else {
-      // User is not logged in, toggle login window
-      if (loginWindow && !loginWindow.isDestroyed()) {
-        if (loginWindow.isVisible()) {
-          loginWindow.hide();
-        } else {
-          if (loginWindow.isMinimized()) {
-            loginWindow.restore();
-          }
-          loginWindow.show();
-          loginWindow.focus();
-        }
-      } else {
-        // Login window doesn't exist, create it
-        createLoginWindow();
-      }
-    }
-  });
-
-  // Handle tray icon double click (always show)
-  tray.on('double-click', () => {
-    if (loggedInUser) {
-      // User is logged in, show main window
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isMinimized()) {
-          mainWindow.restore();
-        }
-        mainWindow.show();
-        mainWindow.focus();
-      }
-    } else {
-      // User is not logged in, show login window
-      if (loginWindow && !loginWindow.isDestroyed()) {
-        if (loginWindow.isMinimized()) {
-          loginWindow.restore();
-        }
-        loginWindow.show();
-        loginWindow.focus();
-      } else {
-        // Login window doesn't exist, create it
-        createLoginWindow();
-      }
-    }
-  });
-}
-
-/**
- * Creates the main application BrowserWindow configured for screen capture and loads the renderer.
- *
- * Sets up a BrowserWindow with Node integration and permissive media settings, configures session
- * handlers to allow display media and desktop capture, auto-selects a desktop source when requested,
- * loads index.html into the window, opens DevTools for debugging, and clears the global window
- * reference when the window is closed.
- */
-
-function createWindow() {
-  const { screen } = require('electron');
-
-  mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      enableRemoteModule: true,
-      // Enable screen capture permissions
-      autoplayPolicy: 'no-user-gesture-required'
-    },
-    icon: path.join(__dirname, 'assets/icon.png'), // Optional: Add an icon
-    webSecurity: false, // Allow mixed content for screen capture
-    // Enable screen capture
-    alwaysOnTop: false,
-    fullscreenable: true
-  });
-
-  // Configure session to allow screen capture
-  const ses = mainWindow.webContents.session;
-  ses.setDisplayMediaRequestHandler((request, callback) => {
-    // For screen capture, we'll allow access to screen sources
-    callback({ video: true, audio: false });
-  });
-
-  // Enable media access for screen capture
-  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    if (permission === 'media' || permission === 'desktop-capture' || permission === 'display-capture') {
-      callback(true); // Grant media, desktop capture, and display capture access
-    } else {
-      callback(false); // Deny other permissions
-    }
-  });
-
-  // Additional configuration for screen capture compatibility
-  // Note: select-desktop-capture-source is deprecated in newer Electron versions
-  // The source selection is now handled in the renderer process
-
-  mainWindow.loadFile('index.html');
-
-  // Open DevTools for debugging screen capture
-  mainWindow.webContents.openDevTools({ mode: 'detach' });
-
-  // Release reference so the window can be garbage collected
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
-}
-
-// System tray functionality
-let tray = null;
-
-/**
- * Create and show the login window used for user authentication.
- *
+ * Creates and shows the login window used for user authentication.
  * The window is configured for the application's login UI, loads "login.html",
  * and clears the module-level `loginWindow` reference when closed.
  */
-async function createLoginWindow() {
+async function createLoginWindow(): Promise<void> {
   // Check if login window already exists and is open
   if (loginWindow && !loginWindow.isDestroyed()) {
     // If login window exists, just bring it to focus
@@ -337,7 +412,7 @@ async function createLoginWindow() {
     return;
   }
 
-  // Clear all session data when showing login window
+  // Clear any existing session when showing login window
   await sessionManager.clearAllSessionData();
 
   loginWindow = new BrowserWindow({
@@ -346,8 +421,7 @@ async function createLoginWindow() {
     resizable: false,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false,
-      enableRemoteModule: true
+      contextIsolation: false
     },
     icon: path.join(__dirname, 'assets/icon.png')
   });
@@ -362,135 +436,8 @@ async function createLoginWindow() {
   });
 }
 
-app.whenReady().then(async () => {
-  // Initialize session manager after app is ready
-  sessionManager = new SessionManager();
-
-  // Connect to database
-  const dbConnected = await db.connect();
-  if (!dbConnected) {
-    console.error('Failed to connect to database');
-    // You might want to show an error message to the user here
-  }
-
-  // Create tray icon early so it's available even before login
-  const iconPath = path.join(__dirname, 'assets/logo.jpg');
-  const iconImage = nativeImage.createFromPath(iconPath);
-
-  // If icon doesn't exist, use a default icon
-  tray = new Tray(iconImage.isEmpty() ? null : iconImage);
-
-  // Set initial tooltip
-  tray.setToolTip('XPloyee - Starting...');
-
-  // Update the tray menu to reflect initial state (logged out)
-  updateTrayMenu();
-
-  // Check if there's a valid session stored
-  const savedSession = await sessionManager.loadSession();
-
-  if (savedSession) {
-    // If there's a valid session, skip login and go directly to main window
-    console.log('Valid session found, auto-login...');
-    loggedInUser = savedSession;
-
-    // Log login activity
-    await logUserActivity('login');
-
-    // Create main application window
-    createWindow();
-
-    // Pass user information to the renderer
-    mainWindow.webContents.once('dom-ready', () => {
-      mainWindow.webContents.send('user-info', savedSession);
-
-      // Start network monitoring after DOM is ready
-      startNetworkMonitoring();
-    });
-
-    // Store mainWindow globally so database operations can send network usage updates
-    global.mainWindow = mainWindow;
-
-    // Update tray tooltip to indicate logged in status
-    tray.setToolTip(`XPloyee - Logged In as ${savedSession.Name || savedSession.RepID}`);
-
-    // Update the tray menu to reflect logged in state
-    updateTrayMenu();
-    tray.setTitle('XPloyee');
-
-    // Set up tray event handlers for the logged-in state
-    setupTrayEventHandlers();
-
-    // Flag to determine if we're quitting the app or just closing the window
-    let isQuitting = false;
-
-    app.on('before-quit', () => {
-      isQuitting = true; // Set flag to allow actual quitting
-    });
-
-    // Also handle the case when user tries to close the window
-    mainWindow.on('close', (event) => {
-      if (!isQuitting) {
-        // Prevent the window from closing, just hide it
-        event.preventDefault();
-        mainWindow.hide();
-      }
-      // If isQuitting is true, the window will close normally
-    });
-
-    // Handle app quit to log logout activity
-    app.on('quit', async () => {
-      if (loggedInUser) {
-        await logUserActivity('logout');
-      }
-    });
-
-    // Handle window visibility changes to notify renderer
-    mainWindow.on('show', () => {
-      // Send current state to renderer when window is shown
-      mainWindow.webContents.send('window-shown');
-
-      // If user is not logged in, send a reset state message
-      if (!loggedInUser) {
-        mainWindow.webContents.send('reset-all-states-before-logout');
-      }
-    });
-
-    mainWindow.on('hide', () => {
-      mainWindow.webContents.send('window-hidden');
-    });
-  } else {
-    // No valid session, show login window first
-    // Update tray tooltip to indicate logged out status
-    tray.setToolTip('XPloyee - Logged Out');
-
-    // Update the tray menu to reflect logged out state
-    updateTrayMenu();
-
-    // Set up tray event listeners for the logged-out state
-    setupTrayEventHandlers();
-
-    await createLoginWindow();
-  }
-});
-
-// Handle login
-ipcMain.handle('login', async (event, repid, mobile) => {
-  try {
-    const result = await db.authenticateUser(repid, mobile);
-    return result;
-  } catch (error) {
-    console.error('Login error:', error);
-    return { success: false, message: 'An error occurred during authentication' };
-  }
-});
-
-// Store logged-in user information
-let loggedInUser = null;
-
 /**
  * Record a user activity in the database and update network usage estimates.
- *
  * Inserts a user activity row (salesrepTb, activity_type, duration, timestamp) and increments global network usage counters based on estimated query/response sizes.
  * @param {string} activityType - The activity identifier (e.g., "login", "check-in", "break-start", "break-end", "check-out").
  * @param {number} [duration=0] - Optional duration in seconds associated with the activity (use 0 when not applicable).
@@ -498,7 +445,7 @@ let loggedInUser = null;
  *   If the operation runs: an object with `success: true` and the inserted row `id`, or `success: false` with an `error` message on failure.
  *   Returns `undefined` immediately if there is no active database connection or no logged-in user.
  */
-async function logUserActivity(activityType, duration = 0) {
+async function logUserActivity(activityType: string, duration: number = 0): Promise<{ success: boolean; id?: number; error?: string } | undefined> {
   if (!db.connection || !loggedInUser) {
     console.error('Database not connected or user not logged in');
     return;
@@ -515,7 +462,7 @@ async function logUserActivity(activityType, duration = 0) {
     const querySize = query.length + JSON.stringify([loggedInUser.ID, activityType, duration]).length;
     totalBytesUploaded += querySize; // Add query size to uploaded bytes
 
-    const [result] = await db.connection.execute(query, [
+    const [result]: any = await db.connection!.execute(query, [
       loggedInUser.ID,      // salesrepTb (user ID)
       activityType,         // activity_type
       duration              // duration
@@ -527,11 +474,22 @@ async function logUserActivity(activityType, duration = 0) {
 
     console.log(`Activity logged: ${activityType} for user ID: ${loggedInUser.ID}`);
     return { success: true, id: result.insertId };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error logging user activity:', error);
     return { success: false, error: error.message };
   }
 }
+
+// Handle login
+ipcMain.handle('login', async (event, repid: string, mobile: string) => {
+  try {
+    const result = await db.authenticateUser(repid, mobile);
+    return result;
+  } catch (error: any) {
+    console.error('Login error:', error);
+    return { success: false, message: 'An error occurred during authentication' };
+  }
+});
 
 // Handle logout request from renderer - moved outside login-success to prevent duplicate registration
 ipcMain.handle('logout-request', async (event) => {
@@ -568,14 +526,14 @@ ipcMain.handle('logout-request', async (event) => {
     await createLoginWindow();
 
     return { success: true };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error during logout:', error);
     return { success: false, error: error.message };
   }
 });
 
 // Handle successful login
-ipcMain.handle('login-success', async (event, user) => {
+ipcMain.handle('login-success', async (event, user: any) => {
   // Store the logged-in user
   loggedInUser = user;
 
@@ -594,15 +552,15 @@ ipcMain.handle('login-success', async (event, user) => {
   createWindow();
 
   // Pass user information to the renderer
-  mainWindow.webContents.once('dom-ready', () => {
-    mainWindow.webContents.send('user-info', user);
+  mainWindow!.webContents.once('dom-ready', () => {
+    mainWindow!.webContents.send('user-info', user);
 
     // Start network monitoring after DOM is ready
     startNetworkMonitoring();
   });
 
   // Store mainWindow globally so database operations can send network usage updates
-  global.mainWindow = mainWindow;
+  (global as any).mainWindow = mainWindow;
 
   // Update tray tooltip to indicate logged in status
   if (tray) {
@@ -611,10 +569,55 @@ ipcMain.handle('login-success', async (event, user) => {
 
   // Update the tray menu to reflect logged in state
   updateTrayMenu();
-  tray.setTitle('XPloyee');
+  if (tray) {
+    tray.setTitle('XPloyee');
+  }
 
-  // Set up tray event handlers for the logged-in state
-  setupTrayEventHandlers();
+  // Remove any existing tray event listeners to prevent duplicates
+  tray!.removeAllListeners('click');
+  tray!.removeAllListeners('double-click');
+
+  // Handle tray icon single click (toggle visibility)
+  tray!.on('click', () => {
+    if (loggedInUser) {
+      // User is logged in, toggle main window visibility
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isVisible()) {
+          // Window is visible, hide it (minimize to tray)
+          mainWindow.hide();
+        } else {
+          // Window is hidden, show it
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+          }
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      } else {
+        // Main window doesn't exist, create it
+        createWindow();
+      }
+    } else {
+      // User is not logged in, toggle login window visibility
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        if (loginWindow.isVisible()) {
+          // Window is visible, hide it
+          loginWindow.hide();
+        } else {
+          // Window is hidden, show it
+          if (loginWindow.isMinimized()) {
+            loginWindow.restore();
+          }
+          loginWindow.show();
+          loginWindow.focus();
+        }
+      } else {
+        // Login window doesn't exist, create it
+        createLoginWindow();
+      }
+    }
+  });
+
 
   // Flag to determine if we're quitting the app or just closing the window
   let isQuitting = false;
@@ -624,11 +627,18 @@ ipcMain.handle('login-success', async (event, user) => {
   });
 
   // Also handle the case when user tries to close the window
-  mainWindow.on('close', async (event) => {
+  mainWindow!.on('close', async (event) => {
     if (!isQuitting) {
       // Prevent the window from closing, just hide it
       event.preventDefault();
-      mainWindow.hide();
+      // Hide the window first
+      mainWindow!.hide();
+      // Update the tray menu immediately to reflect the new state
+      if (tray) {
+        const isLoggedIn = !!loggedInUser;
+        const contextMenu = Menu.buildFromTemplate(createTrayMenu(isLoggedIn));
+        tray.setContextMenu(contextMenu);
+      }
     } else {
       // If quitting, ensure any ongoing recording is properly handled
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -650,6 +660,12 @@ ipcMain.handle('login-success', async (event, user) => {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
+    // Clear network monitoring interval when quitting
+    if (networkUsageInterval) {
+      clearInterval(networkUsageInterval);
+      networkUsageInterval = null;
+    }
+
     if (loggedInUser) {
       await logUserActivity('logout');
     }
@@ -668,19 +684,35 @@ ipcMain.handle('login-success', async (event, user) => {
     }
   });
 
-  // Handle window visibility changes to notify renderer
-  mainWindow.on('show', () => {
+  // Handle window visibility changes to notify renderer and update tray menu
+  mainWindow!.on('show', () => {
     // Send current state to renderer when window is shown
-    mainWindow.webContents.send('window-shown');
+    mainWindow!.webContents.send('window-shown');
 
     // If user is not logged in, send a reset state message
     if (!loggedInUser) {
-      mainWindow.webContents.send('reset-all-states-before-logout');
+      mainWindow!.webContents.send('reset-all-states-before-logout');
+    }
+
+
+    // Update the tray menu immediately to reflect the new state
+    if (tray) {
+      const isLoggedIn = !!loggedInUser;
+      const contextMenu = Menu.buildFromTemplate(createTrayMenu(isLoggedIn));
+      tray.setContextMenu(contextMenu);
     }
   });
 
-  mainWindow.on('hide', () => {
-    mainWindow.webContents.send('window-hidden');
+  mainWindow!.on('hide', () => {
+    mainWindow!.webContents.send('window-hidden');
+
+
+    // Update the tray menu immediately to reflect the new state
+    if (tray) {
+      const isLoggedIn = !!loggedInUser;
+      const contextMenu = Menu.buildFromTemplate(createTrayMenu(isLoggedIn));
+      tray.setContextMenu(contextMenu);
+    }
   });
 });
 
@@ -693,14 +725,14 @@ ipcMain.handle('check-in', async (event) => {
   try {
     const result = await logUserActivity('check-in');
     return result;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error logging check-in:', error);
     return { success: false, error: error.message };
   }
 });
 
 // Handle break activity
-ipcMain.handle('break', async (event, isOnBreak) => {
+ipcMain.handle('break', async (event, isOnBreak: boolean) => {
   if (!loggedInUser) {
     return { success: false, message: 'User not logged in' };
   }
@@ -709,7 +741,7 @@ ipcMain.handle('break', async (event, isOnBreak) => {
     const activityType = isOnBreak ? 'break-start' : 'break-end';
     const result = await logUserActivity(activityType);
     return result;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error logging break:', error);
     return { success: false, error: error.message };
   }
@@ -724,7 +756,7 @@ ipcMain.handle('check-out', async (event) => {
   try {
     const result = await logUserActivity('check-out');
     return result;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error logging check-out:', error);
     return { success: false, error: error.message };
   }
@@ -758,7 +790,7 @@ ipcMain.handle('get-sources', async () => {
 
     console.log('Mapped sources:', mappedSources);
     return mappedSources;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error getting sources:', error);
     console.error('Error details:', error.message, error.stack);
     // Return an empty array instead of throwing to prevent crashes
@@ -767,19 +799,19 @@ ipcMain.handle('get-sources', async () => {
 });
 
 // Handle starting recording (will pass source ID to renderer)
-ipcMain.handle('start-recording', async (event, sourceId) => {
+ipcMain.handle('start-recording', async (event, sourceId: string) => {
   try {
     // Just return the source ID to the renderer process
     // The actual recording will be handled in the renderer
     return sourceId;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error starting recording:', error);
     throw error;
   }
 });
 
 // Handle uploading the recorded file to a server
-ipcMain.handle('save-recording', async (event, buffer, filename) => {
+ipcMain.handle('save-recording', async (event, buffer: Buffer, filename: string) => {
   try {
     // Extract user information from the currently logged-in user
     const userId = loggedInUser ? loggedInUser.ID : 1; // Use logged-in user ID or default to 1
@@ -833,7 +865,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         'Authorization': `Bearer ${process.env.UPLOAD_TOKEN || 'local-token'}`, // Example auth header
       },
       timeout: 120000, // Increased timeout to accommodate larger files
-      validateStatus: function (status) {
+      validateStatus: function (status: number) {
         // Accept status codes 200-300 as successful, plus 400 so we can handle it ourselves
         return status < 500;
       }
@@ -865,7 +897,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
       const currentTime = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
       const imgID = response.data.fileId || Date.now(); // Use server's file ID if available
 
-      const [result] = await db.connection.execute(query, [
+      const [result]: any = await db.connection!.execute(query, [
         brId,           // br_id
         imgID,          // imgID (server file ID)
         filename,       // imgName (original filename)
@@ -897,7 +929,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
       const currentTime = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
       const imgID = Date.now(); // Fallback to timestamp
 
-      const [result] = await db.connection.execute(query, [
+      const [result]: any = await db.connection!.execute(query, [
         brId,           // br_id
         imgID,          // imgID
         filename,       // imgName (original filename)
@@ -917,7 +949,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         message: `Recording segment uploaded to server and saved to database with ID: ${result.insertId}`
       };
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error uploading recording segment to server:', error);
     console.error('Error details:', error.message, error.stack);
 
@@ -954,7 +986,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
 
       const imgID = Date.now();
 
-      const [result] = await db.connection.execute(query, [
+      const [result]: any = await db.connection!.execute(query, [
         brId,           // br_id
         imgID,          // imgID
         filename,       // imgName
@@ -972,7 +1004,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         error: error.message,
         message: `Upload failed, saved locally instead. Error: ${error.message}`
       };
-    } catch (fallbackError) {
+    } catch (fallbackError: any) {
       console.error('Fallback save also failed:', fallbackError);
       return {
         success: false,
@@ -985,7 +1017,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
 });
 
 // Handle auto-saving the recorded file to a default location
-ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
+ipcMain.handle('auto-save-recording', async (event, buffer: Buffer, filename: string) => {
   try {
     const fs = require('fs');
     const path = require('path');
@@ -1005,7 +1037,7 @@ ipcMain.handle('auto-save-recording', async (event, buffer, filename) => {
     fs.writeFileSync(filePath, buffer);
 
     return { success: true, filePath };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error auto-saving recording:', error);
     return { success: false, error: error.message };
   }
@@ -1021,7 +1053,7 @@ async function getNetworkUsage() {
     let currentTotalRxBytes = 0; // Received/downloaded bytes
     let currentTotalTxBytes = 0; // Transmitted/uploaded bytes
 
-    networkStats.forEach(interfaceStat => {
+    networkStats.forEach((interfaceStat: any) => {
       if (interfaceStat.rx_bytes !== undefined && interfaceStat.tx_bytes !== undefined) {
         currentTotalRxBytes += interfaceStat.rx_bytes;
         currentTotalTxBytes += interfaceStat.tx_bytes;
@@ -1030,16 +1062,16 @@ async function getNetworkUsage() {
 
     // Calculate speeds based on the difference since last check
     const now = Date.now();
-    const timeDiff = (now - (global.lastNetworkCheckTime || now - 1000)) / 1000; // in seconds
+    const timeDiff = (now - ((global as any).lastNetworkCheckTime || now - 1000)) / 1000; // in seconds
     const timeDiffSafe = Math.max(timeDiff, 0.001); // Minimum to prevent division by zero
 
     // Calculate speeds in KB/s
-    const downloadSpeed = Math.max(0, (currentTotalRxBytes - (global.previousRxBytes || 0)) / timeDiffSafe / 1024);
-    const uploadSpeed = Math.max(0, (currentTotalTxBytes - (global.previousTxBytes || 0)) / timeDiffSafe / 1024);
+    const downloadSpeed = Math.max(0, (currentTotalRxBytes - ((global as any).previousRxBytes || 0)) / timeDiffSafe / 1024);
+    const uploadSpeed = Math.max(0, (currentTotalTxBytes - ((global as any).previousTxBytes || 0)) / timeDiffSafe / 1024);
 
     // Calculate the difference since last check
-    const rxDifference = currentTotalRxBytes - (global.previousRxBytes || 0);
-    const txDifference = currentTotalTxBytes - (global.previousTxBytes || 0);
+    const rxDifference = currentTotalRxBytes - ((global as any).previousRxBytes || 0);
+    const txDifference = currentTotalTxBytes - ((global as any).previousTxBytes || 0);
 
     // Only add positive differences to our totals
     if (rxDifference > 0) {
@@ -1050,9 +1082,9 @@ async function getNetworkUsage() {
     }
 
     // Update global tracking variables
-    global.previousRxBytes = currentTotalRxBytes;
-    global.previousTxBytes = currentTotalTxBytes;
-    global.lastNetworkCheckTime = now;
+    (global as any).previousRxBytes = currentTotalRxBytes;
+    (global as any).previousTxBytes = currentTotalTxBytes;
+    (global as any).lastNetworkCheckTime = now;
 
     return {
       totalDownloaded: totalBytesDownloaded,
@@ -1060,12 +1092,12 @@ async function getNetworkUsage() {
       downloadSpeed: Math.round(downloadSpeed),
       uploadSpeed: Math.round(uploadSpeed)
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error getting network usage:', error);
 
     // Fallback to previous method if system information fails
     const now = Date.now();
-    const timeDiff = (now - (global.lastNetworkCheckTime || now - 1000)) / 1000; // in seconds
+    const timeDiff = (now - ((global as any).lastNetworkCheckTime || now - 1000)) / 1000; // in seconds
     const timeDiffSafe = Math.max(timeDiff, 0.001); // Minimum to prevent division by zero
 
     const downloadSpeed = Math.max(0, (totalBytesDownloaded - previousBytesDownloaded) / timeDiffSafe / 1024); // KB/s
@@ -1074,7 +1106,7 @@ async function getNetworkUsage() {
     // Update tracking variables
     previousBytesDownloaded = totalBytesDownloaded;
     previousBytesUploaded = totalBytesUploaded;
-    global.lastNetworkCheckTime = now;
+    (global as any).lastNetworkCheckTime = now;
 
     return {
       totalDownloaded: totalBytesDownloaded,
@@ -1098,10 +1130,17 @@ function startNetworkMonitoring() {
 
   // Update network usage every second
   networkUsageInterval = setInterval(async () => {
-    if (mainWindow) {
-      // Send network usage to renderer
-      const networkData = await getNetworkUsage();
-      mainWindow.webContents.send('network-usage-update', networkData);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        // Send network usage to renderer
+        const networkData = await getNetworkUsage();
+        // Double-check that mainWindow still exists before sending
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('network-usage-update', networkData);
+        }
+      } catch (error) {
+        console.error('Error sending network usage update:', error);
+      }
     }
   }, 1000);
 }
@@ -1112,9 +1151,67 @@ ipcMain.on('request-network-usage', (event) => {
 });
 
 // Handle database operation network usage updates
-ipcMain.on('database-operation', (event, data) => {
+ipcMain.on('database-operation', (event, data: { uploadSize?: number; downloadSize?: number }) => {
   totalBytesUploaded += data.uploadSize || 0;
   totalBytesDownloaded += data.downloadSize || 0;
+});
+
+app.whenReady().then(async () => {
+  // Initialize session manager after app is ready
+  sessionManager = new SessionManager();
+
+  // Connect to database
+  const dbConnected = await db.connect();
+  if (!dbConnected) {
+    console.error('Failed to connect to database');
+    // You might want to show an error message to the user here
+  }
+
+  // Create tray icon early so it's available even before login
+  setupTray();
+
+  // Check if there's a valid session stored
+  const savedSession = await sessionManager.loadSession();
+
+  if (savedSession) {
+    // If there's a valid session, skip login and go directly to main window
+    console.log('Valid session found, auto-login...');
+    loggedInUser = savedSession;
+
+    // Log login activity
+    await logUserActivity('login');
+
+    // Create main application window
+    createWindow();
+
+    // Pass user information to the renderer
+    mainWindow!.webContents.once('dom-ready', () => {
+      mainWindow!.webContents.send('user-info', savedSession);
+
+      // Start network monitoring after DOM is ready
+      startNetworkMonitoring();
+    });
+
+    // Store mainWindow globally so database operations can send network usage updates
+    (global as any).mainWindow = mainWindow;
+
+    // Update tray tooltip to indicate logged in status
+    tray!.setToolTip(`XPloyee - Logged In as ${savedSession.Name || savedSession.RepID}`);
+
+    // Update the tray menu to reflect logged in state
+    updateTrayMenu();
+  } else {
+    // No valid session, show login window first
+    // Update tray tooltip to indicate logged out status
+    if (tray) {
+      tray.setToolTip('XPloyee - Logged Out');
+    }
+
+    // Update the tray menu to reflect logged out state
+    updateTrayMenu();
+
+    await createLoginWindow();
+  }
 });
 
 app.on('window-all-closed', async () => {
@@ -1132,6 +1229,12 @@ app.on('window-all-closed', async () => {
     // Wait a bit for the renderer to process the event
     await new Promise(resolve => setTimeout(resolve, 500));
   }
+
+  // Clear network monitoring interval when all windows are closed
+  if (networkUsageInterval) {
+    clearInterval(networkUsageInterval);
+    networkUsageInterval = null;
+  }
 });
 
 app.on('activate', () => {
@@ -1147,11 +1250,6 @@ app.on('activate', () => {
         win.show();
       }
       win.focus();
-
-      // If user is not logged in, send a reset state message
-      if (!loggedInUser && win === mainWindow) {
-        win.webContents.send('reset-all-states-before-logout');
-      }
     }
   }
 });

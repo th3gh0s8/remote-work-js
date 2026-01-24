@@ -2,9 +2,12 @@
   "name": "xploree",
   "version": "1.0.0",
   "description": "employee work time tracker and screen recorder",
-  "main": "main.js",
+  "main": "dist/main.js",
   "scripts": {
     "start": "electron .",
+    "dev": "electron .",
+    "build": "tsc",
+    "build:watch": "tsc --watch",
     "test": "echo \\\"Error: no test specified\\\" && exit 1"
   },
   "repository": {
@@ -24,7 +27,10 @@
   },
   "homepage": "https://github.com/th3gh0s8/xploree#readme",
   "devDependencies": {
-    "electron": "^39.2.4"
+    "@types/mysql": "^2.15.27",
+    "@types/node": "^20.19.30",
+    "electron": "^39.2.4",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@electron/remote": "^2.1.0",
