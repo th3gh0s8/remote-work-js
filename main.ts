@@ -78,8 +78,9 @@ function createWindow(): void {
     width: 800,
     height: 600,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'), // Reference the preload script
       // Enable screen capture permissions
       autoplayPolicy: 'no-user-gesture-required' as any // Cast to any to bypass TypeScript check
     },
@@ -106,7 +107,7 @@ function createWindow(): void {
   // Note: 'select-desktop-capture-source' is not a standard Electron event
   // We'll use the newer desktopCapturer API instead
 
-  mainWindow.loadFile('index.html');
+  mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   // Open DevTools for debugging screen capture
   mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -431,13 +432,14 @@ async function createLoginWindow(): Promise<void> {
     height: 600,
     resizable: false,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js') // Reference the preload script
     },
     icon: path.join(__dirname, 'assets/icon.png')
   });
 
-  loginWindow.loadFile('login.html');
+  loginWindow.loadFile(path.join(__dirname, 'login.html'));
 
   // Open DevTools for debugging
   // loginWindow.webContents.openDevTools({ mode: 'detach' });

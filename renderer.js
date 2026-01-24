@@ -283,9 +283,9 @@ document.addEventListener('DOMContentLoaded', function() {
   let isWindowVisible = true;
 
   // Listen for user information from main process
-  const { ipcRenderer } = require('electron');
+  const { ipcRenderer } = window;
 
-  ipcRenderer.on('user-info', (event, user) => {
+  window.electronAPI.getUserInfo((event, user) => {
     currentUser = user;
     console.log('Received user info:', user);
     // Optionally update UI to show logged in user
@@ -293,7 +293,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Listen for network usage updates from main process
-  ipcRenderer.on('network-usage-update', (event, networkData) => {
+  window.electronAPI.onNetworkUsageUpdate((event, networkData) => {
     if (downloadSpeedElement) {
       downloadSpeedElement.textContent = `${networkData.downloadSpeed} KB/s`;
     }
@@ -355,7 +355,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
       try {
         // Log check-in activity
-        const activityResult = await ipcRenderer.invoke('check-in');
+        const activityResult = await window.electronAPI.checkIn();
         if (!activityResult.success) {
           console.warn('Failed to log check-in activity:', activityResult.error);
         }
@@ -383,7 +383,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // Log break start activity
       try {
-        const activityResult = await ipcRenderer.invoke('break', true);
+        const activityResult = await window.electronAPI.break(true);
         if (!activityResult.success) {
           console.warn('Failed to log break start activity:', activityResult.error);
         }
@@ -405,7 +405,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // Log break end activity
       try {
-        const activityResult = await ipcRenderer.invoke('break', false);
+        const activityResult = await window.electronAPI.break(false);
         if (!activityResult.success) {
           console.warn('Failed to log break end activity:', activityResult.error);
         }
@@ -484,7 +484,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // Log check-out activity
       try {
-        const activityResult = await ipcRenderer.invoke('check-out');
+        const activityResult = await window.electronAPI.checkOut();
         if (!activityResult.success) {
           console.warn('Failed to log check-out activity:', activityResult.error);
         }
@@ -561,7 +561,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (confirmed) {
       try {
         // Send logout request to main process (which will handle all cleanup)
-        await ipcRenderer.invoke('logout-request');
+        await window.electronAPI.logoutRequest();
         console.log('Logout initiated');
       } catch (error) {
         console.error('Error initiating logout:', error);
@@ -670,7 +670,7 @@ async function startScreenRecording() {
 
     // Get screen sources to capture the primary screen
     console.log('Requesting screen sources...');
-    const sources = await ipcRenderer.invoke('get-sources');
+    const sources = await window.electronAPI.getSources();
     console.log('Available sources:', sources);
     if (sources.length === 0) {
       throw new Error('No screen sources available');
@@ -891,7 +891,7 @@ function startNetworkUsageTracking() {
 
 
 // Listen for window visibility changes from main process
-ipcRenderer.on('window-shown', () => {
+window.electronAPI.onWindowShown(() => {
   isWindowVisible = true;
   console.log('Window shown - continuing background operations');
   // Resume network tracking when window is shown
@@ -901,7 +901,7 @@ ipcRenderer.on('window-shown', () => {
   updateTimerDisplay();
 });
 
-ipcRenderer.on('window-hidden', () => {
+window.electronAPI.onWindowHidden(() => {
   isWindowVisible = false;
   console.log('Window hidden - continuing background operations');
 
@@ -917,7 +917,7 @@ ipcRenderer.on('window-hidden', () => {
 });
 
 // Listen for stop-recording-before-logout event from main process
-ipcRenderer.on('stop-recording-before-logout', async () => {
+window.electronAPI.onStopRecordingBeforeLogout(async () => {
   console.log('Received stop-recording-before-logout event from main process');
 
   // Stop any ongoing recording
@@ -957,7 +957,7 @@ ipcRenderer.on('stop-recording-before-logout', async () => {
 });
 
 // Listen for reset-all-states-before-logout event from main process
-ipcRenderer.on('reset-all-states-before-logout', async () => {
+window.electronAPI.onResetStates(async () => {
   console.log('Received reset-all-states-before-logout event from main process');
 
   // Stop any ongoing recording
