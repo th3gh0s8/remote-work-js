@@ -24,6 +24,42 @@ let tray: Tray | null = null;
 // Store logged-in user information
 let loggedInUser: any = null;
 
+// Variables to track the last known window state for comparison
+let lastKnownWindowState: boolean | null = null;
+
+// Function to monitor and update tray menu based on window state
+function monitorWindowState() {
+  // Check the current window state
+  let targetWindow = null;
+  let currentState = false;
+
+  if (loggedInUser) {
+    targetWindow = mainWindow;
+  } else {
+    targetWindow = loginWindow;
+  }
+
+  if (targetWindow && !targetWindow.isDestroyed()) {
+    currentState = targetWindow.isVisible() && !targetWindow.isMinimized();
+  }
+
+  // Compare with the last known state
+  if (lastKnownWindowState !== currentState) {
+    // State has changed, update the tray menu
+    lastKnownWindowState = currentState;
+    if (tray) {
+      const isLoggedIn = !!loggedInUser;
+      const contextMenu = Menu.buildFromTemplate(createTrayMenu(isLoggedIn));
+      tray.setContextMenu(contextMenu);
+    }
+  }
+}
+
+// Set up a periodic check for window state changes
+setInterval(monitorWindowState, 200); // Check every 200ms
+
+
+
 /**
  * Creates the main application BrowserWindow configured for screen capture and loads the renderer.
  * Sets up a BrowserWindow with Node integration and permissive media settings, configures session
@@ -148,6 +184,10 @@ function setupTray(): void {
         createLoginWindow();
       }
     }
+    // Update the tray menu to reflect the new visibility state
+    setTimeout(() => {
+      updateTrayMenu();
+    }, 50); // Small delay to ensure the window state is updated
   });
 
 
@@ -160,7 +200,7 @@ function setupTray(): void {
         // Send current state to renderer when showing the window
         mainWindow.show();
         mainWindow.focus();
-        
+
         // If user is not logged in, send a reset state message
         if (!loggedInUser) {
           mainWindow.webContents.send('reset-all-states-before-logout');
@@ -170,33 +210,59 @@ function setupTray(): void {
       // If there's no main window and user is not logged in, show login window
       createLoginWindow();
     }
+    // Update the tray menu to reflect the new visibility state
+    setTimeout(() => {
+      updateTrayMenu();
+    }, 50); // Small delay to ensure the window state is updated
   });
 }
+
 
 /**
  * Creates the tray context menu based on the current login state
  */
 function createTrayMenu(isLoggedIn: boolean): Array<Electron.MenuItemConstructorOptions> {
-  const menuItems: Array<Electron.MenuItemConstructorOptions> = [
-    {
+  // Determine current window state to show appropriate buttons
+  let targetWindow = null;
+  let isWindowVisible = false;
+
+  if (loggedInUser) {
+    targetWindow = mainWindow;
+  } else {
+    targetWindow = loginWindow;
+  }
+
+  if (targetWindow && !targetWindow.isDestroyed()) {
+    isWindowVisible = targetWindow.isVisible() && !targetWindow.isMinimized();
+  }
+
+  const menuItems: Array<Electron.MenuItemConstructorOptions> = [];
+
+  // Add Show App button if window is not visible
+  if (!isWindowVisible) {
+    menuItems.push({
       label: 'Show App',
       click: () => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          // Main window exists, show it
-          if (mainWindow.isMinimized()) {
-            mainWindow.restore();
-          }
-          mainWindow.show();
-          mainWindow.focus();
-        } else if (loginWindow && !loginWindow.isDestroyed()) {
-          // Login window exists, show it
-          if (loginWindow.isMinimized()) {
-            loginWindow.restore();
-          }
-          loginWindow.show();
-          loginWindow.focus();
+        // Determine which window to operate on based on login state
+        let targetWindow = null;
+
+        if (loggedInUser) {
+          // User is logged in, use main window
+          targetWindow = mainWindow;
         } else {
-          // Neither window exists, recreate the appropriate window
+          // User is not logged in, use login window
+          targetWindow = loginWindow;
+        }
+
+        if (targetWindow && !targetWindow.isDestroyed()) {
+          // Show the window
+          if (targetWindow.isMinimized()) {
+            targetWindow.restore();
+          }
+          targetWindow.show();
+          targetWindow.focus();
+        } else {
+          // No appropriate window exists, create it
           if (loggedInUser) {
             // User is logged in, create main window
             createWindow();
@@ -205,9 +271,41 @@ function createTrayMenu(isLoggedIn: boolean): Array<Electron.MenuItemConstructor
             createLoginWindow();
           }
         }
+        // Update the tray menu immediately to reflect the new state
+        setImmediate(() => {
+          updateTrayMenu();
+        });
       }
-    }
-  ];
+    });
+  }
+
+  // Add Hide App button if window is visible
+  if (isWindowVisible) {
+    menuItems.push({
+      label: 'Hide App',
+      click: () => {
+        // Determine which window to operate on based on login state
+        let targetWindow = null;
+
+        if (loggedInUser) {
+          // User is logged in, use main window
+          targetWindow = mainWindow;
+        } else {
+          // User is not logged in, use login window
+          targetWindow = loginWindow;
+        }
+
+        if (targetWindow && !targetWindow.isDestroyed()) {
+          // Hide the window
+          targetWindow.hide();
+        }
+        // Update the tray menu immediately to reflect the new state
+        setImmediate(() => {
+          updateTrayMenu();
+        });
+      }
+    });
+  }
 
   if (isLoggedIn) {
     menuItems.push(
@@ -556,7 +654,14 @@ ipcMain.handle('login-success', async (event, user: any) => {
     if (!isQuitting) {
       // Prevent the window from closing, just hide it
       event.preventDefault();
+      // Hide the window first
       mainWindow!.hide();
+      // Update the tray menu immediately to reflect the new state
+      if (tray) {
+        const isLoggedIn = !!loggedInUser;
+        const contextMenu = Menu.buildFromTemplate(createTrayMenu(isLoggedIn));
+        tray.setContextMenu(contextMenu);
+      }
     } else {
       // If quitting, ensure any ongoing recording is properly handled
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -602,7 +707,7 @@ ipcMain.handle('login-success', async (event, user: any) => {
     }
   });
 
-  // Handle window visibility changes to notify renderer
+  // Handle window visibility changes to notify renderer and update tray menu
   mainWindow!.on('show', () => {
     // Send current state to renderer when window is shown
     mainWindow!.webContents.send('window-shown');
@@ -611,10 +716,26 @@ ipcMain.handle('login-success', async (event, user: any) => {
     if (!loggedInUser) {
       mainWindow!.webContents.send('reset-all-states-before-logout');
     }
+
+
+    // Update the tray menu immediately to reflect the new state
+    if (tray) {
+      const isLoggedIn = !!loggedInUser;
+      const contextMenu = Menu.buildFromTemplate(createTrayMenu(isLoggedIn));
+      tray.setContextMenu(contextMenu);
+    }
   });
 
   mainWindow!.on('hide', () => {
     mainWindow!.webContents.send('window-hidden');
+
+
+    // Update the tray menu immediately to reflect the new state
+    if (tray) {
+      const isLoggedIn = !!loggedInUser;
+      const contextMenu = Menu.buildFromTemplate(createTrayMenu(isLoggedIn));
+      tray.setContextMenu(contextMenu);
+    }
   });
 });
 
