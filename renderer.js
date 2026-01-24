@@ -571,13 +571,15 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
 /**
- * Update the on-screen status with the current worked time and break state.
+ * Update the on-screen session status and work/break time displays.
  *
- * If the user is checked in, sets the global `statusText.innerHTML` to show either
- * the check-in time and accumulated worked time or the break start time and worked time
- * up to the break. Does nothing when not checked in.
+ * Updates the main status text and related statistic elements to reflect the current
+ * check-in time, total session time, current and total break time, and net work time.
+ * When the user is on break, the break start time and time worked up to the break are shown.
+ * Does nothing if the user is not checked in.
  *
- * Relies on global state: `startTime`, `isCheckedIn`, `isOnBreak`, `breakStartTime`, and `totalBreakTime`.
+ * Relies on module-level state: `startTime`, `isCheckedIn`, `isOnBreak`, `breakStartTime`,
+ * `totalBreakTime`, and the DOM elements used for display.
  */
 function updateTimerDisplay() {
   if (!startTime || !isCheckedIn) {
@@ -795,6 +797,11 @@ async function resumeScreenRecording() {
   console.log('Resume function called but not used in current implementation');
 }
 
+/**
+ * Stop the active screen recording segment, wait briefly for finalization, and release the captured media stream.
+ *
+ * Clears any pending segment timeout, stops the MediaRecorder if it is recording (allowing onstop handlers to run), waits ~300ms for processing, and stops all tracks on the global stream if present.
+ */
 async function stopScreenRecording() {
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     // Clear any existing timeout to prevent conflicts
@@ -864,7 +871,11 @@ async function trackNetworkUsage() {
   }
 }
 
-// Start network usage tracking when DOM is loaded
+/**
+ * Begin periodic tracking of network usage, ensuring an immediate update and subsequent updates every second.
+ *
+ * Clears any existing interval used for tracking, invokes trackNetworkUsage once immediately, and then schedules recurring updates at 1-second intervals.
+ */
 function startNetworkUsageTracking() {
   // Clear any existing interval
   if (networkUsageInterval) {

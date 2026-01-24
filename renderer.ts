@@ -218,7 +218,11 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 /**
- * Request screen capture permission and start recording the primary display.
+ * Requests display capture permission and begins recording the primary display into an internal MediaRecorder.
+ *
+ * Updates the shared `globalStream` and `mediaRecorder` state, and sets `statusText` to reflect recording progress or errors.
+ *
+ * @returns Nothing.
  */
 async function startScreenRecording(): Promise<void> {
   try {
@@ -344,6 +348,12 @@ async function startScreenRecording(): Promise<void> {
   }
 }
 
+/**
+ * Stops any active screen recording and releases the captured media stream.
+ *
+ * If a MediaRecorder is currently recording, it is stopped. Any existing global
+ * MediaStream has all of its tracks stopped and the shared stream reference is cleared.
+ */
 async function stopScreenRecording(): Promise<void> {
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     mediaRecorder.stop();
@@ -360,7 +370,12 @@ async function stopScreenRecording(): Promise<void> {
   }
 }
 
-// Helper function to format time
+/**
+ * Format a Date into a short time string with two-digit hour and minute.
+ *
+ * @param date - The Date to format
+ * @returns The time portion of `date` as `"HH:MM"` using the current locale (e.g., "09:30")
+ */
 function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
