@@ -683,22 +683,17 @@ async function startScreenRecording() {
       throw new Error('Invalid source ID received from main process');
     }
 
-    // Create constraints for screen capture using the original format which is more compatible
+    // Create constraints for screen capture using the modern format
     const constraints = {
       audio: false,
       video: {
-        mandatory: {
-          chromeMediaSource: 'desktop',
-          chromeMediaSourceId: selectedSourceId,
-          minWidth: 1280,
-          minHeight: 720,
-          maxWidth: 1920,
-          maxHeight: 1080
-        }
+        deviceId: selectedSourceId ? { exact: selectedSourceId } : undefined
       }
     };
 
     console.log('Attempting to get media stream with constraints:', constraints);
+
+    // Request screen capture permissions
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     console.log('Screen stream obtained successfully', stream);
 
@@ -713,6 +708,12 @@ async function startScreenRecording() {
     const track = videoTracks[0];
     console.log('Track settings:', track.getSettings());
     console.log('Track constraints:', track.getConstraints());
+
+    // Add event listener to handle when the user stops screen sharing
+    track.onended = () => {
+      console.log('Screen sharing ended by user');
+      statusText.textContent = 'Screen sharing ended by user';
+    };
 
     // Create MediaRecorder with optimized options for better compatibility
     let recordingOptions = {
@@ -877,30 +878,32 @@ function startNetworkUsageTracking() {
   networkUsageInterval = setInterval(trackNetworkUsage, 1000);
 }
 
+
 // Listen for window visibility changes from main process
-if (window.electronAPI) {
-  window.electronAPI.onWindowShown(() => {
-    isWindowVisible = true;
-    console.log('Window shown - continuing background operations');
-    // Resume network tracking when window is shown
-    startNetworkUsageTracking();
-  });
+ipcRenderer.on('window-shown', () => {
+  isWindowVisible = true;
+  console.log('Window shown - continuing background operations');
+  // Resume network tracking when window is shown
+  startNetworkUsageTracking();
 
-  window.electronAPI.onWindowHidden(() => {
-    isWindowVisible = false;
-    console.log('Window hidden - continuing background operations');
+  // Update status to reflect current state
+  updateTimerDisplay();
+});
 
-    // Update status to reflect that recording is happening in background (only if checked in)
-    if (isCheckedIn && !isOnBreak) {
-      if (window.statusText) window.statusText.innerHTML = `Recording in background since <strong>${formatTime(startTime)}</strong>`;
-    } else if (isCheckedIn && isOnBreak && breakStartTime) {
-      if (window.statusText) window.statusText.innerHTML = `On break, recording paused. Background session since <strong>${formatTime(startTime)}</strong>`;
-    } else {
-      // If not checked in, show appropriate status
-      if (window.statusText) window.statusText.textContent = 'Logged out. Please log in to start recording.';
-    }
-  });
-}
+ipcRenderer.on('window-hidden', () => {
+  isWindowVisible = false;
+  console.log('Window hidden - continuing background operations');
+
+  // Update status to reflect that recording is happening in background (only if checked in)
+  if (isCheckedIn && !isOnBreak) {
+    if (window.statusText) window.statusText.innerHTML = `Recording in background since <strong>${formatTime(startTime)}</strong>`;
+  } else if (isCheckedIn && isOnBreak && breakStartTime) {
+    if (window.statusText) window.statusText.innerHTML = `On break, recording paused. Background session since <strong>${formatTime(startTime)}</strong>`;
+  } else {
+    // If not checked in, show appropriate status
+    if (window.statusText) window.statusText.textContent = 'Logged out. Please log in to start recording.';
+  }
+});
 
 // Listen for stop-recording-before-logout event from main process
 ipcRenderer.on('stop-recording-before-logout', async () => {
