@@ -191,30 +191,7 @@ function setupTray(): void {
   });
 
 
-  // Show window when tray icon is clicked
-  tray.on('click', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isVisible()) {
-        mainWindow.hide();
-      } else {
-        // Send current state to renderer when showing the window
-        mainWindow.show();
-        mainWindow.focus();
 
-        // If user is not logged in, send a reset state message
-        if (!loggedInUser) {
-          mainWindow.webContents.send('reset-all-states-before-logout');
-        }
-      }
-    } else if (!loggedInUser) {
-      // If there's no main window and user is not logged in, show login window
-      createLoginWindow();
-    }
-    // Update the tray menu to reflect the new visibility state
-    setTimeout(() => {
-      updateTrayMenu();
-    }, 50); // Small delay to ensure the window state is updated
-  });
 }
 
 
