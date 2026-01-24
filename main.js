@@ -20,43 +20,90 @@ let sessionManager;
  * Creates the tray context menu based on the current login state
  */
 function createTrayMenu(isLoggedIn) {
-  const menuItems = [
-    {
+  // Determine which window is currently active for show/hide functionality
+  let targetWindow = null;
+  let isWindowVisible = false;
+
+  if (isLoggedIn) {
+    targetWindow = mainWindow;
+  } else {
+    targetWindow = loginWindow;
+  }
+
+  if (targetWindow && !targetWindow.isDestroyed()) {
+    isWindowVisible = targetWindow.isVisible() && !targetWindow.isMinimized();
+  }
+
+  const menuItems = [];
+
+  // Add Show App button if window is not visible
+  if (!isWindowVisible) {
+    menuItems.push({
       label: 'Show App',
       click: () => {
+        // Determine which window to operate on based on login state
+        let targetWindow = null;
+
         if (isLoggedIn) {
-          // User is logged in, toggle main window
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            if (mainWindow.isVisible()) {
-              mainWindow.hide();
-            } else {
-              if (mainWindow.isMinimized()) {
-                mainWindow.restore();
-              }
-              mainWindow.show();
-              mainWindow.focus();
-            }
-          }
+          // User is logged in, use main window
+          targetWindow = mainWindow;
         } else {
-          // User is not logged in, toggle login window
-          if (loginWindow && !loginWindow.isDestroyed()) {
-            if (loginWindow.isVisible()) {
-              loginWindow.hide();
-            } else {
-              if (loginWindow.isMinimized()) {
-                loginWindow.restore();
-              }
-              loginWindow.show();
-              loginWindow.focus();
-            }
+          // User is not logged in, use login window
+          targetWindow = loginWindow;
+        }
+
+        if (targetWindow && !targetWindow.isDestroyed()) {
+          // Show the window
+          if (targetWindow.isMinimized()) {
+            targetWindow.restore();
+          }
+          targetWindow.show();
+          targetWindow.focus();
+        } else {
+          // No appropriate window exists, create it
+          if (isLoggedIn) {
+            // User is logged in, create main window
+            createWindow();
           } else {
-            // Login window doesn't exist, create it
+            // User is not logged in, create login window
             createLoginWindow();
           }
         }
+        // Update the tray menu immediately to reflect the new state
+        setTimeout(() => {
+          updateTrayMenu();
+        }, 50); // Small delay to ensure the window state is updated
       }
-    }
-  ];
+    });
+  }
+
+  // Add Hide App button if window is visible
+  if (isWindowVisible) {
+    menuItems.push({
+      label: 'Hide App',
+      click: () => {
+        // Determine which window to operate on based on login state
+        let targetWindow = null;
+
+        if (isLoggedIn) {
+          // User is logged in, use main window
+          targetWindow = mainWindow;
+        } else {
+          // User is not logged in, use login window
+          targetWindow = loginWindow;
+        }
+
+        if (targetWindow && !targetWindow.isDestroyed()) {
+          // Hide the window
+          targetWindow.hide();
+        }
+        // Update the tray menu immediately to reflect the new state
+        setTimeout(() => {
+          updateTrayMenu();
+        }, 50); // Small delay to ensure the window state is updated
+      }
+    });
+  }
 
   if (isLoggedIn) {
     menuItems.push(
@@ -176,6 +223,17 @@ function updateTrayMenu() {
 }
 
 /**
+ * Refreshes the tray menu to reflect current window visibility state
+ */
+function refreshTrayMenu() {
+  if (tray) {
+    const isLoggedIn = !!loggedInUser;
+    const contextMenu = createTrayMenu(isLoggedIn);
+    tray.setContextMenu(contextMenu);
+  }
+}
+
+/**
  * Creates the main application BrowserWindow configured for screen capture and loads the renderer.
  *
  * Sets up a BrowserWindow with Node integration and permissive media settings, configures session
@@ -281,6 +339,16 @@ async function createLoginWindow() {
   // Open DevTools for debugging
   // loginWindow.webContents.openDevTools({ mode: 'detach' });
 
+  loginWindow.on('show', () => {
+    // Refresh tray menu to update the 'Show'/'Hide' option
+    setTimeout(refreshTrayMenu, 100); // Small delay to ensure window state is updated
+  });
+
+  loginWindow.on('hide', () => {
+    // Refresh tray menu to update the 'Show'/'Hide' option
+    setTimeout(refreshTrayMenu, 100); // Small delay to ensure window state is updated
+  });
+
   loginWindow.on('closed', () => {
     loginWindow = null;
   });
@@ -342,19 +410,17 @@ app.whenReady().then(async () => {
     updateTrayMenu();
     tray.setTitle('XPloyee');
 
-    // Track click timing for double-click detection
-    let lastClickTime = 0;
-
-    // Handle tray icon click (single vs double click)
-    tray.on('click', (event, bounds, position) => {
-      const now = Date.now();
-      const isDoubleClick = (now - lastClickTime) < 300; // 300ms threshold for double-click
-
-      if (isDoubleClick) {
-        // Handle double-click
-        if (loggedInUser) {
-          // User is logged in, show main window
-          if (mainWindow && !mainWindow.isDestroyed()) {
+    // Handle tray icon single click (toggle visibility)
+    tray.removeAllListeners('click'); // Remove any existing listeners to prevent duplicates
+    tray.on('click', () => {
+      if (loggedInUser) {
+        // User is logged in, toggle main window visibility
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          if (mainWindow.isVisible()) {
+            // Window is visible, hide it (minimize to tray)
+            mainWindow.hide();
+          } else {
+            // Window is hidden, show it
             if (mainWindow.isMinimized()) {
               mainWindow.restore();
             }
@@ -362,53 +428,32 @@ app.whenReady().then(async () => {
             mainWindow.focus();
           }
         } else {
-          // User is not logged in, show login window
-          if (loginWindow && !loginWindow.isDestroyed()) {
+          // Main window doesn't exist, create it
+          createWindow();
+        }
+      } else {
+        // User is not logged in, toggle login window visibility
+        if (loginWindow && !loginWindow.isDestroyed()) {
+          if (loginWindow.isVisible()) {
+            // Window is visible, hide it
+            loginWindow.hide();
+          } else {
+            // Window is hidden, show it
             if (loginWindow.isMinimized()) {
               loginWindow.restore();
             }
             loginWindow.show();
             loginWindow.focus();
-          } else {
-            // Login window doesn't exist, create it
-            createLoginWindow();
-          }
-        }
-        lastClickTime = 0; // Reset to prevent triple-click from triggering
-      } else {
-        // Handle single-click (toggle behavior)
-        if (loggedInUser) {
-          // User is logged in, toggle main window
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            if (mainWindow.isVisible()) {
-              mainWindow.hide();
-            } else {
-              if (mainWindow.isMinimized()) {
-                mainWindow.restore();
-              }
-              mainWindow.show();
-              mainWindow.focus();
-            }
           }
         } else {
-          // User is not logged in, toggle login window
-          if (loginWindow && !loginWindow.isDestroyed()) {
-            if (loginWindow.isVisible()) {
-              loginWindow.hide();
-            } else {
-              if (loginWindow.isMinimized()) {
-                loginWindow.restore();
-              }
-              loginWindow.show();
-              loginWindow.focus();
-            }
-          } else {
-            // Login window doesn't exist, create it
-            createLoginWindow();
-          }
+          // Login window doesn't exist, create it
+          createLoginWindow();
         }
-        lastClickTime = now;
       }
+      // Update the tray menu to reflect the new visibility state
+      setTimeout(() => {
+        updateTrayMenu();
+      }, 50); // Small delay to ensure the window state is updated
     });
 
     // Flag to determine if we're quitting the app or just closing the window
@@ -435,7 +480,7 @@ app.whenReady().then(async () => {
       }
     });
 
-    // Handle window visibility changes to notify renderer
+    // Handle window visibility changes to notify renderer and update tray menu
     mainWindow.on('show', () => {
       // Send current state to renderer when window is shown
       mainWindow.webContents.send('window-shown');
@@ -444,10 +489,20 @@ app.whenReady().then(async () => {
       if (!loggedInUser) {
         mainWindow.webContents.send('reset-all-states-before-logout');
       }
+
+      // Update the tray menu immediately to reflect the new state
+      if (tray) {
+        updateTrayMenu(); // Use the existing updateTrayMenu function which properly builds the menu
+      }
     });
 
     mainWindow.on('hide', () => {
       mainWindow.webContents.send('window-hidden');
+
+      // Update the tray menu immediately to reflect the new state
+      if (tray) {
+        updateTrayMenu(); // Use the existing updateTrayMenu function which properly builds the menu
+      }
     });
   } else {
     // No valid session, show login window first
@@ -474,6 +529,44 @@ ipcMain.handle('login', async (event, repid, mobile) => {
 
 // Store logged-in user information
 let loggedInUser = null;
+
+// Variables to track the last known window state for comparison
+let lastKnownWindowState = null;
+
+/**
+ * Monitors the currently relevant window (main when logged in, login otherwise) and updates the tray context menu when that window's visible/minimized state changes.
+ *
+ * When the observed visibility/minimized state differs from the last known state, the function rebuilds and sets the tray's context menu to reflect the new window state.
+ */
+function monitorWindowState() {
+  // Check the current window state
+  let targetWindow = null;
+  let currentState = false;
+
+  if (loggedInUser) {
+    targetWindow = mainWindow;
+  } else {
+    targetWindow = loginWindow;
+  }
+
+  if (targetWindow && !targetWindow.isDestroyed()) {
+    currentState = targetWindow.isVisible() && !targetWindow.isMinimized();
+  }
+
+  // Compare with the last known state
+  if (lastKnownWindowState !== currentState) {
+    // State has changed, update the tray menu
+    lastKnownWindowState = currentState;
+    if (tray) {
+      const isLoggedIn = !!loggedInUser;
+      updateTrayMenu(); // Use the existing updateTrayMenu function which properly builds the menu
+    }
+  }
+}
+
+// Set up a periodic check for window state changes
+setInterval(monitorWindowState, 200); // Check every 200ms
+
 
 /**
  * Record a user activity in the database and update network usage estimates.
@@ -600,19 +693,20 @@ ipcMain.handle('login-success', async (event, user) => {
   updateTrayMenu();
   tray.setTitle('XPloyee');
 
-  // Track click timing for double-click detection
-  let lastClickTime2 = 0;
+  // Remove any existing tray event listeners to prevent duplicates
+  tray.removeAllListeners('click');
+  tray.removeAllListeners('double-click');
 
-  // Handle tray icon click (single vs double click)
-  tray.on('click', (event, bounds, position) => {
-    const now = Date.now();
-    const isDoubleClick = (now - lastClickTime2) < 300; // 300ms threshold for double-click
-
-    if (isDoubleClick) {
-      // Handle double-click
-      if (loggedInUser) {
-        // User is logged in, show main window
-        if (mainWindow && !mainWindow.isDestroyed()) {
+  // Handle tray icon single click (toggle visibility)
+  tray.on('click', () => {
+    if (loggedInUser) {
+      // User is logged in, toggle main window visibility
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isVisible()) {
+          // Window is visible, hide it (minimize to tray)
+          mainWindow.hide();
+        } else {
+          // Window is hidden, show it
           if (mainWindow.isMinimized()) {
             mainWindow.restore();
           }
@@ -620,52 +714,27 @@ ipcMain.handle('login-success', async (event, user) => {
           mainWindow.focus();
         }
       } else {
-        // User is not logged in, show login window
-        if (loginWindow && !loginWindow.isDestroyed()) {
+        // Main window doesn't exist, create it
+        createWindow();
+      }
+    } else {
+      // User is not logged in, toggle login window visibility
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        if (loginWindow.isVisible()) {
+          // Window is visible, hide it
+          loginWindow.hide();
+        } else {
+          // Window is hidden, show it
           if (loginWindow.isMinimized()) {
             loginWindow.restore();
           }
           loginWindow.show();
           loginWindow.focus();
-        } else {
-          // Login window doesn't exist, create it
-          createLoginWindow();
-        }
-      }
-      lastClickTime2 = 0; // Reset to prevent triple-click from triggering
-    } else {
-      // Handle single-click (toggle behavior)
-      if (loggedInUser) {
-        // User is logged in, toggle main window
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          if (mainWindow.isVisible()) {
-            mainWindow.hide();
-          } else {
-            if (mainWindow.isMinimized()) {
-              mainWindow.restore();
-            }
-            mainWindow.show();
-            mainWindow.focus();
-          }
         }
       } else {
-        // User is not logged in, toggle login window
-        if (loginWindow && !loginWindow.isDestroyed()) {
-          if (loginWindow.isVisible()) {
-            loginWindow.hide();
-          } else {
-            if (loginWindow.isMinimized()) {
-              loginWindow.restore();
-            }
-            loginWindow.show();
-            loginWindow.focus();
-          }
-        } else {
-          // Login window doesn't exist, create it
-          createLoginWindow();
-        }
+        // Login window doesn't exist, create it
+        createLoginWindow();
       }
-      lastClickTime2 = now;
     }
   });
 
@@ -732,7 +801,7 @@ ipcMain.handle('login-success', async (event, user) => {
     // This preserves the session for next startup
   });
 
-  // Handle window visibility changes to notify renderer
+  // Handle window visibility changes to notify renderer and update tray menu
   mainWindow.on('show', () => {
     // Send current state to renderer when window is shown
     mainWindow.webContents.send('window-shown');
@@ -741,10 +810,20 @@ ipcMain.handle('login-success', async (event, user) => {
     if (!loggedInUser) {
       mainWindow.webContents.send('reset-all-states-before-logout');
     }
+
+    // Update the tray menu immediately to reflect the new state
+    if (tray) {
+      updateTrayMenu(); // Use the existing updateTrayMenu function which properly builds the menu
+    }
   });
 
   mainWindow.on('hide', () => {
     mainWindow.webContents.send('window-hidden');
+
+    // Update the tray menu immediately to reflect the new state
+    if (tray) {
+      updateTrayMenu(); // Use the existing updateTrayMenu function which properly builds the menu
+    }
   });
 });
 
@@ -1162,10 +1241,17 @@ function startNetworkMonitoring() {
 
   // Update network usage every second
   networkUsageInterval = setInterval(async () => {
-    if (mainWindow) {
-      // Send network usage to renderer
-      const networkData = await getNetworkUsage();
-      mainWindow.webContents.send('network-usage-update', networkData);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        // Send network usage to renderer
+        const networkData = await getNetworkUsage();
+        // Double-check that mainWindow still exists before sending
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('network-usage-update', networkData);
+        }
+      } catch (error) {
+        console.error('Error sending network usage update:', error);
+      }
     }
   }, 1000);
 }
