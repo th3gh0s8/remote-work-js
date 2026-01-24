@@ -17,8 +17,13 @@ const db = new DatabaseConnection();
 let sessionManager;
 
 /**
- * Creates the tray context menu based on the current login state
- */
+ * Builds a tray context menu that adapts options for logged-in and logged-out users.
+ *
+ * When a user is logged in the menu includes Show App, Switch Account, Logout, and Quit.
+ * When no user is logged in the menu includes Show App, Login, and Quit.
+ *
+ * @param {boolean} isLoggedIn - True if a user session is active; controls which menu items are included.
+ * @returns {Menu} The Electron Menu configured for the tray. */
 function createTrayMenu(isLoggedIn) {
   const menuItems = [
     {
@@ -187,7 +192,9 @@ function updateTrayMenu() {
 }
 
 /**
- * Sets up tray event handlers based on the current login state
+ * Attach click and double-click handlers to the tray icon that toggle or show the appropriate window based on whether a user is logged in.
+ *
+ * Removes any existing tray listeners to avoid duplicates. On single click the handler toggles the main window when logged in or the login window when logged out (creating the login window if needed). On double-click the handler ensures the relevant window is shown and focused.
  */
 function setupTrayEventHandlers() {
   if (!tray) return;
@@ -258,12 +265,11 @@ function setupTrayEventHandlers() {
 }
 
 /**
- * Creates the main application BrowserWindow configured for screen capture and loads the renderer.
+ * Create the main application BrowserWindow configured for screen capture and load the renderer UI.
  *
- * Sets up a BrowserWindow with Node integration and permissive media settings, configures session
- * handlers to allow display media and desktop capture, auto-selects a desktop source when requested,
- * loads index.html into the window, opens DevTools for debugging, and clears the global window
- * reference when the window is closed.
+ * The window is constructed with Node integration and screen-capture–friendly web preferences,
+ * configures session handlers to grant display/media/desktop-capture permissions, loads index.html,
+ * opens DevTools, and clears the global mainWindow reference when the window is closed.
  */
 
 function createWindow() {
@@ -321,10 +327,9 @@ function createWindow() {
 let tray = null;
 
 /**
- * Create and show the login window used for user authentication.
+ * Create and show the login window for user authentication.
  *
- * The window is configured for the application's login UI, loads "login.html",
- * and clears the module-level `loginWindow` reference when closed.
+ * Clears all persisted session data before presenting the window. If a login window already exists, brings it to the foreground instead of creating a new one. Loads "login.html", configures the window for the login UI (size, icon, and web preferences), and clears the module-level `loginWindow` reference when the window is closed.
  */
 async function createLoginWindow() {
   // Check if login window already exists and is open
