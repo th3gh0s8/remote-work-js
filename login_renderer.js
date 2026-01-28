@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             // Send login credentials to main process for authentication
             // Using RepID as username and NIC as password
-            const result = await ipcRenderer.invoke('login', repid, password);
+            //const result = await ipcRenderer.invoke('login', repid, password);
             
             if (result.success) {
                 // Login successful, navigate to main application

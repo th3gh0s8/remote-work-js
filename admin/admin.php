@@ -54,27 +54,6 @@ switch ($action) {
     case 'reports':
         showReports();
         break;
-    case 'notifications':
-        showNotifications();
-        break;
-    case 'mark_notification_read':
-        markNotificationRead();
-        break;
-    case 'backup':
-        showBackupPage();
-        break;
-    case 'create_backup':
-        handleCreateBackup();
-        break;
-    case 'download_backup':
-        handleDownloadBackup();
-        break;
-    case 'restore_backup':
-        handleRestoreBackup();
-        break;
-    case 'delete_backup':
-        handleDeleteBackup();
-        break;
     case 'watch_live':
         showLiveWatching();
         break;
@@ -1107,15 +1086,6 @@ function showDashboard() {
                 <h1>Admin Dashboard</h1>
             </div>
             <div style="display: flex; gap: 15px;">
-                <a href="?action=notifications" class="logout-btn" style="background: linear-gradient(to right, var(--warning-color), #e67700); position: relative;">
-                    Notifications
-                    <?php
-                    $unread_count = getUnreadNotificationsCount();
-                    if ($unread_count > 0):
-                    ?>
-                        <span style="position: absolute; top: -8px; right: -8px; background-color: red; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 0.75em;"><?= $unread_count ?></span>
-                    <?php endif; ?>
-                </a>
                 <a href="?action=logout" class="logout-btn">Logout</a>
             </div>
         </div>
@@ -1162,8 +1132,6 @@ function showDashboard() {
                 <div class="tab" onclick="switchTab('activities')">Activities</div>
                 <div class="tab" onclick="switchTab('all-users')">All Users</div>
                 <div class="tab" onclick="switchTab('reports')">Reports</div>
-                <div class="tab" onclick="switchTab('notifications')">Notifications</div>
-                <div class="tab" onclick="switchTab('backup')">Backup</div>
             </div>
 
             <div id="active-users" class="tab-content active">
@@ -1559,33 +1527,6 @@ function showDashboard() {
                 </div>
             </div>
 
-            <div id="notifications" class="tab-content">
-                <div class="section">
-                    <div class="section-header">
-                        <h2><span class="icon">🔔</span> Notifications</h2>
-                    </div>
-                    <div class="section-content">
-                        <p>Manage system notifications and alerts.</p>
-                        <div style="margin-top: 20px;">
-                            <a href="?action=notifications" class="action-btn export-btn" style="display: inline-block; text-decoration: none; color: white;">View All Notifications</a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div id="backup" class="tab-content">
-                <div class="section">
-                    <div class="section-header">
-                        <h2><span class="icon">💾</span> Backup & Restore</h2>
-                    </div>
-                    <div class="section-content">
-                        <p>Create and manage database backups to protect your data.</p>
-                        <div style="margin-top: 20px;">
-                            <a href="?action=backup" class="action-btn export-btn" style="display: inline-block; text-decoration: none; color: white;">Manage Backups</a>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
 
         <script>
@@ -1612,9 +1553,7 @@ function showDashboard() {
                     'recordings': 'recordings',
                     'activities': 'activities',
                     'all-users': 'all_users',
-                    'reports': 'reports',
-                    'notifications': 'notifications',
-                    'backup': 'backup'
+                    'reports': 'reports'
                 };
 
                 const pageParam = tabMap[tabName] || 'active_users';
@@ -1649,10 +1588,6 @@ function showDashboard() {
                     activeTabId = 'all-users';
                 } else if (currentPage === 'reports') {
                     activeTabId = 'reports';
-                } else if (currentPage === 'notifications') {
-                    activeTabId = 'notifications';
-                } else if (currentPage === 'backup') {
-                    activeTabId = 'backup';
                 } else {
                     activeTabId = 'active-users'; // Default
                 }
@@ -1669,9 +1604,7 @@ function showDashboard() {
                         (activeTabId === 'recordings' && tabText.includes('Recordings')) ||
                         (activeTabId === 'activities' && tabText.includes('Activities')) ||
                         (activeTabId === 'all-users' && tabText.includes('All Users')) ||
-                        (activeTabId === 'reports' && tabText.includes('Reports')) ||
-                        (activeTabId === 'notifications' && tabText.includes('Notifications')) ||
-                        (activeTabId === 'backup' && tabText.includes('Backup'))
+                        (activeTabId === 'reports' && tabText.includes('Reports'))
                     ) {
                         tab.classList.add('active');
                     }
