@@ -4722,6 +4722,11 @@ function showLiveWatching() {
                             });
                         }
                     }, 500); // Small delay to ensure video is loaded
+
+                    // Immediately check for the latest video to ensure we have the most recent one
+                    setTimeout(() => {
+                        checkForLatestVideo();
+                    }, 2000); // Check after 2 seconds to allow initial load
                 } else {
                     statusIndicator.className = 'status-indicator status-stopped';
                     statusIndicator.textContent = 'No recordings available';
@@ -4784,6 +4789,7 @@ function showLiveWatching() {
             // Check for the latest video and update if needed
             let currentUserId = <?php echo $userId; ?>;
             let currentLatestVideo = playlist.length > 0 ? playlist[0] : null;
+            let forceUpdateOnNextPlay = false; // Flag to force update on next play
 
             function checkForLatestVideo() {
                 // Make an AJAX request to get the latest video
@@ -4802,47 +4808,33 @@ function showLiveWatching() {
                                 // This is a new latest video, update our reference
                                 currentLatestVideo = latestVideo;
 
-                                // Check if we're currently playing the first video (latest)
-                                if (currentIndex === 0) {
-                                    // Reload the video player with the new latest video
-                                    loadVideo(0);
+                                // Update the playlist array to put the new latest video first
+                                const existingIndex = playlist.findIndex(v => v.ID === latestVideo.ID);
+                                if (existingIndex === -1) {
+                                    // New video not in playlist, add it to the beginning
+                                    playlist.unshift(latestVideo);
+                                } else if (existingIndex !== 0) {
+                                    // Video exists but not at the beginning, move it
+                                    playlist.splice(existingIndex, 1);
+                                    playlist.unshift(latestVideo);
+                                }
 
-                                    // Update the playlist array to put the new latest video first
-                                    const existingIndex = playlist.findIndex(v => v.ID === latestVideo.ID);
-                                    if (existingIndex === -1) {
-                                        // New video not in playlist, add it to the beginning
-                                        playlist.unshift(latestVideo);
-                                    } else if (existingIndex !== 0) {
-                                        // Video exists but not at the beginning, move it
-                                        playlist.splice(existingIndex, 1);
-                                        playlist.unshift(latestVideo);
-                                    }
+                                // Update the playlist UI
+                                updatePlaylistUI();
 
-                                    // Update the playlist UI
-                                    updatePlaylistUI();
+                                // Set flag to force update on next play
+                                forceUpdateOnNextPlay = true;
 
-                                    // If we were playing, continue playing the new latest video
-                                    if (isPlaying) {
-                                        videoPlayer.play().catch(e => console.log('Autoplay prevented: ', e));
-                                    }
-
-                                    // Update status
+                                // Update status to notify user of new video
+                                if (isPlaying) {
                                     statusIndicator.className = 'status-indicator status-playing';
-                                    statusIndicator.textContent = 'New latest video loaded: ' + latestVideo.imgName;
+                                    statusIndicator.textContent = 'New video available: ' + latestVideo.imgName + ' (will play next)';
                                 } else {
-                                    // We're not currently on the latest, just update the playlist
-                                    const existingIndex = playlist.findIndex(v => v.ID === latestVideo.ID);
-                                    if (existingIndex === -1) {
-                                        // New video not in playlist, add it to the beginning
-                                        playlist.unshift(latestVideo);
-                                    } else if (existingIndex !== 0) {
-                                        // Video exists but not at the beginning, move it
-                                        playlist.splice(existingIndex, 1);
-                                        playlist.unshift(latestVideo);
+                                    // If not playing, update immediately
+                                    if (currentIndex === 0) {
+                                        loadVideo(0);
+                                        currentLatestVideo = playlist[0]; // Update reference
                                     }
-
-                                    // Update the playlist UI
-                                    updatePlaylistUI();
                                 }
                             }
                         }
@@ -4851,6 +4843,51 @@ function showLiveWatching() {
                         console.log('Error checking for latest video:', error);
                     });
             }
+
+            // Override the play button to check for latest video before playing
+            const originalPlayBtn = playBtn.onclick;
+            playBtn.onclick = function() {
+                // Check for latest video before playing
+                checkForLatestVideo();
+
+                // If we have a forced update, load the latest video
+                if (forceUpdateOnNextPlay) {
+                    loadVideo(0);
+                    forceUpdateOnNextPlay = false;
+                }
+
+                // Then execute the original play functionality
+                if (playlist.length === 0) return;
+
+                videoPlayer.play()
+                    .then(() => {
+                        isPlaying = true;
+                        statusIndicator.className = 'status-indicator status-playing';
+                        statusIndicator.textContent = 'Playing: ' + playlist[currentIndex].imgName;
+
+                        // Update button text to indicate it's playing
+                        playBtn.textContent = 'Resume';
+                    })
+                    .catch(e => {
+                        console.log('Play failed: ', e);
+                        statusIndicator.className = 'status-indicator status-paused';
+                        statusIndicator.textContent = 'Playback failed - click Play again';
+                    });
+            };
+
+            // Also update the video ended event to check for latest video
+            videoPlayer.addEventListener('ended', () => {
+                // Check for latest video before playing next
+                checkForLatestVideo();
+
+                // Always play the latest video when current one ends
+                loadVideo(0);
+
+                // If we were playing, continue playing the latest video
+                if (isPlaying) {
+                    videoPlayer.play().catch(e => console.log('Autoplay prevented: ', e));
+                }
+            });
 
             // Update the playlist UI
             function updatePlaylistUI() {
@@ -4900,7 +4937,7 @@ function showLiveWatching() {
 
             // Play the same video again (always play the latest)
             function playNextVideo() {
-                // Always stay on the first video (which is the latest)
+                // Always stay on the first video (which should be the latest)
                 // This ensures we keep playing the latest video
                 loadVideo(0);
 
