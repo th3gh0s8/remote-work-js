@@ -291,7 +291,7 @@ function createWindow() {
   mainWindow.loadFile('index.html');
 
   // Open DevTools for debugging screen capture
-  mainWindow.webContents.openDevTools({ mode: 'detach' });
+  // mainWindow.webContents.openDevTools({ mode: 'detach' }); // Removed for production
 
   // Release reference so the window can be garbage collected
   mainWindow.on('closed', () => {
