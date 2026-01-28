@@ -3287,7 +3287,7 @@ function getUserLatestRecordings($userId, $limit = 10) {
             SELECT w.*
             FROM web_images w
             WHERE w.user_id = ? AND w.type = 'recording'
-            ORDER BY w.date DESC, w.time DESC
+            ORDER BY w.date DESC, w.time ASC
             LIMIT ?
         ");
         $stmt->execute([$userId, $limit]);
@@ -3319,7 +3319,7 @@ function getAllUserRecordings($userId) {
             SELECT w.*
             FROM web_images w
             WHERE w.user_id = ? AND w.type = 'recording'
-            ORDER BY w.date DESC, w.time DESC
+            ORDER BY w.date DESC, w.time ASC
         ");
         $stmt->execute([$userId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -4598,6 +4598,8 @@ function showLiveWatching() {
             // Initialize player
             function initPlayer() {
                 if (playlist.length > 0) {
+                    // Start from the first video (oldest) which is at index 0
+                    currentIndex = 0;
                     loadVideo(currentIndex);
                     updatePlaylistHighlight(currentIndex);
                 } else {
