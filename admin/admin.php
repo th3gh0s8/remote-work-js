@@ -84,6 +84,18 @@ switch ($action) {
     case 'get_latest_video':
         getLatestVideo();
         break;
+    case 'combine_recordings':
+        showCombineRecordings();
+        break;
+    case 'generate_combined_video':
+        generateCombinedVideo();
+        break;
+    case 'watch_combined':
+        showWatchCombined();
+        break;
+    case 'serve_combined_video':
+        serveCombinedVideo();
+        break;
     default:
         // Default to dashboard if action is not recognized
         showDashboard();
@@ -1205,6 +1217,7 @@ function showDashboard() {
                                             </td>
                                             <td class="recording-actions">
                                                 <a href="?action=watch_live&user_id=<?php echo $user['ID']; ?>" class="view-btn">Watch Live</a>
+                                                <a href="?action=combine_recordings&user_id=<?php echo $user['ID']; ?>" class="download-btn">Combine Recordings</a>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -1499,6 +1512,7 @@ function showDashboard() {
                                             </td>
                                             <td class="recording-actions">
                                                 <a href="?action=watch_live&user_id=<?php echo $user['ID']; ?>" class="view-btn">Watch Live</a>
+                                                <a href="?action=combine_recordings&user_id=<?php echo $user['ID']; ?>" class="download-btn">Combine Recordings</a>
                                                 <button class="edit-btn" onclick="editUser(<?= $user['ID'] ?>)">Edit</button>
                                                 <button class="delete-btn" onclick="deleteUser(<?= $user['ID'] ?>, '<?= addslashes(htmlspecialchars($user['Name'])) ?>')">Delete</button>
                                             </td>
@@ -4413,6 +4427,825 @@ function getLatestVideo() {
         header('Content-Type: application/json');
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
+    exit;
+}
+
+// Show combine recordings page for a user
+function showCombineRecordings() {
+    checkAdminSession();
+
+    $userId = $_GET['user_id'] ?? null;
+
+    if (!$userId) {
+        header('Location: ?action=dashboard&error=No user specified');
+        exit;
+    }
+
+    // Get user info
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root';
+    $password = '';
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            header('Location: ?action=dashboard&error=User not found');
+            exit;
+        }
+    } catch(PDOException $e) {
+        header('Location: ?action=dashboard&error=Database error occurred');
+        exit;
+    }
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Combine Recordings - <?= htmlspecialchars($user['Name']) ?> | Admin Dashboard</title>
+        <style>
+            :root {
+                --primary-color: #4361ee;
+                --secondary-color: #3f37c9;
+                --success-color: #4cc9f0;
+                --danger-color: #f72585;
+                --warning-color: #f8961e;
+                --info-color: #4895ef;
+                --light-bg: #f8f9fa;
+                --dark-bg: #212529;
+                --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                --border-radius: 8px;
+                --transition: all 0.3s ease;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #f5f7fb;
+                color: #333;
+                line-height: 1.6;
+            }
+
+            .header {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 15px 30px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-radius: var(--border-radius);
+                margin-bottom: 20px;
+            }
+
+            .header h1 {
+                margin: 0;
+                font-size: 1.5em;
+                font-weight: 600;
+            }
+
+            .back-btn {
+                background: linear-gradient(to right, var(--info-color), var(--primary-color));
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 30px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                font-weight: 500;
+                transition: var(--transition);
+            }
+
+            .back-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 10px rgba(67, 97, 238, 0.4);
+            }
+
+            .form-container {
+                background: white;
+                padding: 30px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+                margin-bottom: 20px;
+            }
+
+            .form-group {
+                margin-bottom: 20px;
+            }
+
+            .form-group label {
+                display: block;
+                margin-bottom: 8px;
+                font-weight: 500;
+                color: #555;
+            }
+
+            .form-group input,
+            .form-group select {
+                width: 100%;
+                padding: 12px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                font-size: 1em;
+                transition: var(--transition);
+            }
+
+            .form-group input:focus,
+            .form-group select:focus {
+                outline: none;
+                border-color: var(--primary-color);
+                box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.2);
+            }
+
+            .submit-btn {
+                background: linear-gradient(to right, var(--success-color), #4895ef);
+                color: white;
+                border: none;
+                padding: 14px 25px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 1.1em;
+                font-weight: 500;
+                width: 100%;
+                transition: var(--transition);
+            }
+
+            .submit-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(76, 201, 240, 0.4);
+            }
+
+            .info-text {
+                margin-top: 10px;
+                color: #666;
+                font-size: 0.9em;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Combine Recordings - <?= htmlspecialchars($user['Name']) ?> (<?= htmlspecialchars($user['RepID']) ?>)</h1>
+            <a href="?action=dashboard" class="back-btn">Back to Dashboard</a>
+        </div>
+
+        <div class="form-container">
+            <?php if (isset($_GET['error'])): ?>
+                <div style="background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
+                    <?= htmlspecialchars($_GET['error']) ?>
+                </div>
+            <?php endif; ?>
+
+            <form method="post" action="?action=generate_combined_video&user_id=<?= $userId ?>">
+                <div class="form-group">
+                    <label for="start_date">Start Date:</label>
+                    <input type="date" id="start_date" name="start_date" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="start_hour">Start Time:</label>
+                    <div style="display: flex; gap: 10px;">
+                        <select id="start_hour" name="start_hour" required>
+                            <option value="">Hour</option>
+                            <?php for ($i = 0; $i < 24; $i++): ?>
+                                <option value="<?= sprintf('%02d', $i) ?>"><?= sprintf('%02d', $i) ?></option>
+                            <?php endfor; ?>
+                        </select>
+                        <span style="align-self: center;">:</span>
+                        <select id="start_minute" name="start_minute" required>
+                            <option value="">Minute</option>
+                            <?php for ($i = 0; $i < 60; $i += 5): ?>
+                                <option value="<?= sprintf('%02d', $i) ?>"><?= sprintf('%02d', $i) ?></option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="end_date">End Date:</label>
+                    <input type="date" id="end_date" name="end_date" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="end_hour">End Time:</label>
+                    <div style="display: flex; gap: 10px;">
+                        <select id="end_hour" name="end_hour" required>
+                            <option value="">Hour</option>
+                            <?php for ($i = 0; $i < 24; $i++): ?>
+                                <option value="<?= sprintf('%02d', $i) ?>"><?= sprintf('%02d', $i) ?></option>
+                            <?php endfor; ?>
+                        </select>
+                        <span style="align-self: center;">:</span>
+                        <select id="end_minute" name="end_minute" required>
+                            <option value="">Minute</option>
+                            <?php for ($i = 0; $i < 60; $i += 5): ?>
+                                <option value="<?= sprintf('%02d', $i) ?>"><?= sprintf('%02d', $i) ?></option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="video_format">Video Format:</label>
+                    <select id="video_format" name="video_format">
+                        <option value="webm">WebM</option>
+                        <option value="mp4">MP4</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="submit-btn">Generate Combined Video</button>
+
+                <div class="info-text">
+                    Select a date and time range to combine all recordings from this user into a single video file.
+                </div>
+            </form>
+        </div>
+    </body>
+    </html>
+    <?php
+}
+
+// Generate combined video from selected date/time range
+function generateCombinedVideo() {
+    checkAdminSession();
+
+    $userId = $_GET['user_id'] ?? null;
+    $startDate = $_POST['start_date'] ?? null;
+    $startHour = $_POST['start_hour'] ?? null;
+    $startMinute = $_POST['start_minute'] ?? null;
+    $endDate = $_POST['end_date'] ?? null;
+    $endHour = $_POST['end_hour'] ?? null;
+    $endMinute = $_POST['end_minute'] ?? null;
+    $format = $_POST['video_format'] ?? 'webm';
+
+    // Combine hour and minute into time format
+    $startTime = ($startHour && $startMinute) ? $startHour . ':' . $startMinute . ':00' : null;
+    $endTime = ($endHour && $endMinute) ? $endHour . ':' . $endMinute . ':00' : null;
+
+    if (!$userId || !$startDate || !$startHour || !$startMinute || !$endDate || !$endHour || !$endMinute) {
+        header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=Missing required parameters');
+        exit;
+    }
+
+    // Validate date/time inputs
+    $startDateTime = $startDate . ' ' . $startTime;
+    $endDateTime = $endDate . ' ' . $endTime;
+
+    if (strtotime($startDateTime) > strtotime($endDateTime)) {
+        header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=Start time must be before end time');
+        exit;
+    }
+
+    // Optionally, you can remove the future date restriction if you want to allow future dates
+    // Or you can keep it but only check if start is after end, not if they're in the future
+    $now = new DateTime();
+    $start = new DateTime($startDateTime);
+    $end = new DateTime($endDateTime);
+
+    // Only check if end date is before start date, not if they're in the future
+    // (Commenting out the future date restriction)
+    // if ($start > $now || $end > $now) {
+    //     header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=Cannot select future dates');
+    //     exit;
+    // }
+
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root';
+    $password = '';
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Get user info
+        $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            header('Location: ?action=dashboard&error=User not found');
+            exit;
+        }
+
+        // Get recordings in the specified date/time range using a simpler approach
+        $stmt = $pdo->prepare("
+            SELECT w.*
+            FROM web_images w
+            WHERE w.user_id = ?
+            AND w.type = 'recording'
+            AND CONCAT(w.date, ' ', w.time) >= ?
+            AND CONCAT(w.date, ' ', w.time) <= ?
+            ORDER BY w.date ASC, w.time ASC
+        ");
+        $stmt->execute([
+            $userId,
+            $startDateTime,
+            $endDateTime
+        ]);
+
+        $recordings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // If no results, run a debug query to see what's available
+        if (empty($recordings)) {
+            $debugStmt = $pdo->prepare("
+                SELECT w.*
+                FROM web_images w
+                WHERE w.user_id = ?
+                AND w.type = 'recording'
+                ORDER BY w.date DESC, w.time DESC
+                LIMIT 10
+            ");
+            $debugStmt->execute([$userId]);
+            $debugResults = $debugStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            error_log("Debug - Available recordings for user " . $userId . ": " . count($debugResults));
+            foreach ($debugResults as $rec) {
+                error_log("Debug - Recording: " . $rec['date'] . " " . $rec['time'] . " - " . $rec['imgName']);
+            }
+
+            error_log("Debug - Searching for: " . $startDate . " " . $startTime . " to " . $endDate . " " . $endTime);
+        }
+
+        if (empty($recordings)) {
+            header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=No valid recordings found in the specified time range');
+            exit;
+        }
+
+        // Create a temporary directory for the combined video
+        $tempDir = __DIR__ . '/../temp/';
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        // Generate a unique filename for the combined video
+        $timestamp = date('Y-m-d_H-i-s');
+        $combinedFileName = "combined_" . $user['RepID'] . "_" . $timestamp . "." . $format;
+        $combinedFilePath = $tempDir . $combinedFileName;
+
+        // Create a temporary directory for input files
+        $inputDir = $tempDir . 'inputs_' . uniqid() . '/';
+        mkdir($inputDir, 0755, true);
+
+        // Array to hold paths of video files to combine
+        $inputFiles = [];
+
+        // Process each recording in the range
+        foreach ($recordings as $recording) {
+            // First try the exact filename
+            $sourcePath = __DIR__ . '/../uploads/' . $recording['imgName'];
+
+            // If the exact file doesn't exist, search for files ending with the requested name
+            if (!file_exists($sourcePath)) {
+                $uploadsDir = __DIR__ . '/../uploads/';
+                if (is_dir($uploadsDir)) {
+                    $files = scandir($uploadsDir);
+                    foreach ($files as $file) {
+                        if ($file !== '.' && $file !== '..') {
+                            // Check if the file ends with the requested filename
+                            if (preg_match('/' . preg_quote($recording['imgName'], '/') . '$/', $file)) {
+                                $sourcePath = $uploadsDir . $file;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Verify the source file exists
+            if (file_exists($sourcePath)) {
+                // Copy the file to the input directory with a sequential name
+                $inputFile = $inputDir . 'input_' . sprintf('%03d', count($inputFiles)) . '.tmp';
+                copy($sourcePath, $inputFile);
+                $inputFiles[] = $inputFile;
+            } else {
+                error_log("Source file not found: " . $sourcePath);
+            }
+        }
+
+        if (empty($inputFiles)) {
+            // No valid input files found
+            header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=No valid recordings found in the specified time range');
+            exit;
+        }
+
+        // Create a text file listing all input files for FFmpeg
+        $listFile = $inputDir . 'file_list.txt';
+        $listContent = '';
+        foreach ($inputFiles as $file) {
+            // Escape special characters in file path for FFmpeg
+            $escapedFile = str_replace("'", "'\\''", $file);
+            $listContent .= "file '" . $escapedFile . "'\n";
+        }
+        file_put_contents($listFile, $listContent);
+
+        // Build the FFmpeg command to concatenate videos
+        // Using absolute path for FFmpeg if it's in a specific location
+        $ffmpegCmd = 'ffmpeg -y -f concat -safe 0 -i "' . $listFile . '" -c copy -avoid_negative_ts make_zero "' . $combinedFilePath . '" 2>&1';
+
+        // Execute the FFmpeg command
+        $output = [];
+        $returnCode = 0;
+        exec($ffmpegCmd, $output, $returnCode);
+
+        // Log the command and output for debugging
+        error_log("FFmpeg command: " . $ffmpegCmd);
+        error_log("FFmpeg return code: " . $returnCode);
+        error_log("FFmpeg output: " . implode("\n", $output));
+
+        // If the first method fails, try with a different approach
+        if ($returnCode !== 0) {
+            error_log("FFmpeg concat failed, trying alternative method");
+
+            // Alternative method: use a temporary file list with absolute paths
+            $altListFile = $inputDir . 'alt_file_list.txt';
+            $altListContent = '';
+            foreach ($inputFiles as $file) {
+                $altListContent .= "file '" . realpath($file) . "'\n";
+            }
+            file_put_contents($altListFile, $altListContent);
+
+            $altFfmpegCmd = 'ffmpeg -y -f concat -safe 0 -i "' . $altListFile . '" -c:v libx264 -c:a aac -strict experimental "' . $combinedFilePath . '" 2>&1';
+            exec($altFfmpegCmd, $output, $returnCode);
+
+            error_log("Alternative FFmpeg command: " . $altFfmpegCmd);
+            error_log("Alternative FFmpeg return code: " . $returnCode);
+            error_log("Alternative FFmpeg output: " . implode("\n", $output));
+
+            // Clean up alternative list file
+            if (file_exists($altListFile)) {
+                unlink($altListFile);
+            }
+        }
+
+        // Clean up temporary files
+        foreach ($inputFiles as $file) {
+            if (file_exists($file)) {
+                unlink($file);
+            }
+        }
+        if (file_exists($listFile)) {
+            unlink($listFile);
+        }
+        if (is_dir($inputDir)) {
+            rmdir($inputDir);
+        }
+
+        if ($returnCode !== 0) {
+            // FFmpeg failed
+            if (file_exists($combinedFilePath)) {
+                unlink($combinedFilePath);
+            }
+            header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=Video combination failed. FFmpeg error occurred.');
+            exit;
+        }
+
+        // Redirect to the combined video player
+        header('Location: ?action=watch_combined&file=' . urlencode($combinedFileName) . '&user_id=' . $userId . '&start=' . urlencode($startDateTime) . '&end=' . urlencode($endDateTime));
+        exit;
+
+    } catch(PDOException $e) {
+        header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=' . urlencode($e->getMessage()));
+        exit;
+    }
+}
+
+// Show combined video watching page
+function showWatchCombined() {
+    checkAdminSession();
+
+    $fileName = $_GET['file'] ?? null;
+    $userId = $_GET['user_id'] ?? null;
+    $start = $_GET['start'] ?? null;
+    $end = $_GET['end'] ?? null;
+
+    if (!$fileName || !$userId) {
+        header('Location: ?action=dashboard&error=Missing required parameters');
+        exit;
+    }
+
+    // Get user info
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root';
+    $password = '';
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            header('Location: ?action=dashboard&error=User not found');
+            exit;
+        }
+    } catch(PDOException $e) {
+        header('Location: ?action=dashboard&error=Database error occurred');
+        exit;
+    }
+
+    // In a real implementation, we would serve the actual combined video file
+    // For this demo, we'll simulate the video player
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Combined Video - <?= htmlspecialchars($user['Name']) ?> | Admin Dashboard</title>
+        <style>
+            :root {
+                --primary-color: #4361ee;
+                --secondary-color: #3f37c9;
+                --success-color: #4cc9f0;
+                --danger-color: #f72585;
+                --warning-color: #f8961e;
+                --info-color: #4895ef;
+                --light-bg: #f8f9fa;
+                --dark-bg: #212529;
+                --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                --border-radius: 8px;
+                --transition: all 0.3s ease;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #f5f7fb;
+                color: #333;
+                line-height: 1.6;
+            }
+
+            .header {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 15px 30px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-radius: var(--border-radius);
+                margin-bottom: 20px;
+            }
+
+            .header h1 {
+                margin: 0;
+                font-size: 1.5em;
+                font-weight: 600;
+            }
+
+            .back-btn {
+                background: linear-gradient(to right, var(--info-color), var(--primary-color));
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 30px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                font-weight: 500;
+                transition: var(--transition);
+            }
+
+            .back-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 10px rgba(67, 97, 238, 0.4);
+            }
+
+            .player-container {
+                background: white;
+                padding: 20px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+                margin-bottom: 20px;
+            }
+
+            .video-player {
+                width: 100%;
+                max-width: 800px;
+                margin: 0 auto;
+                display: block;
+            }
+
+            .video-info {
+                margin-top: 15px;
+                padding: 10px;
+                background-color: #f8f9fa;
+                border-radius: 5px;
+                text-align: center;
+            }
+
+            .controls {
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+                margin-top: 15px;
+            }
+
+            .control-btn {
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-weight: 500;
+                transition: var(--transition);
+            }
+
+            .play-btn {
+                background: linear-gradient(to right, var(--success-color), #4895ef);
+                color: white;
+            }
+
+            .pause-btn {
+                background: linear-gradient(to right, var(--warning-color), #f8961e);
+                color: white;
+            }
+
+            .stop-btn {
+                background: linear-gradient(to right, var(--danger-color), #e63946);
+                color: white;
+            }
+
+            .status-indicator {
+                text-align: center;
+                padding: 10px;
+                margin: 10px 0;
+                border-radius: 5px;
+            }
+
+            .status-playing {
+                background-color: #d4edda;
+                color: #155724;
+            }
+
+            .status-paused {
+                background-color: #fff3cd;
+                color: #856404;
+            }
+
+            .status-stopped {
+                background-color: #f8d7da;
+                color: #721c24;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Combined Video - <?= htmlspecialchars($user['Name']) ?> (<?= htmlspecialchars($user['RepID']) ?>)</h1>
+            <a href="?action=dashboard" class="back-btn">Back to Dashboard</a>
+        </div>
+
+        <div class="player-container">
+            <div id="statusIndicator" class="status-indicator status-stopped">
+                Combined Video Player
+            </div>
+
+            <video id="videoPlayer" class="video-player" controls>
+                <source src="?action=serve_combined_video&file=<?= urlencode($fileName) ?>" type="video/<?= pathinfo($fileName, PATHINFO_EXTENSION) ?>">
+                Your browser does not support the video tag.
+            </video>
+
+            <div class="video-info">
+                <div>Combined video for: <?= htmlspecialchars($user['Name']) ?></div>
+                <div>Time Range: <?= htmlspecialchars($start) ?> to <?= htmlspecialchars($end) ?></div>
+                <div>File: <?= htmlspecialchars($fileName) ?></div>
+            </div>
+
+            <div class="controls">
+                <button id="playBtn" class="control-btn play-btn">Play</button>
+                <button id="pauseBtn" class="control-btn pause-btn">Pause</button>
+                <button id="stopBtn" class="control-btn stop-btn">Stop</button>
+            </div>
+        </div>
+
+        <script>
+            // Simulate video player functionality
+            const videoPlayer = document.getElementById('videoPlayer');
+            const playBtn = document.getElementById('playBtn');
+            const pauseBtn = document.getElementById('pauseBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const statusIndicator = document.getElementById('statusIndicator');
+
+            // In a real implementation, we would load the actual video file
+            // For this demo, we'll simulate the video player
+
+            let isPlaying = false;
+
+            playBtn.addEventListener('click', () => {
+                isPlaying = true;
+                statusIndicator.className = 'status-indicator status-playing';
+                statusIndicator.textContent = 'Playing combined video...';
+            });
+
+            pauseBtn.addEventListener('click', () => {
+                isPlaying = false;
+                statusIndicator.className = 'status-indicator status-paused';
+                statusIndicator.textContent = 'Paused';
+            });
+
+            stopBtn.addEventListener('click', () => {
+                isPlaying = false;
+                statusIndicator.className = 'status-indicator status-stopped';
+                statusIndicator.textContent = 'Stopped';
+            });
+
+            // Simulate video ended event
+            setTimeout(() => {
+                if (isPlaying) {
+                    statusIndicator.className = 'status-indicator status-stopped';
+                    statusIndicator.textContent = 'Video completed';
+                    isPlaying = false;
+                }
+            }, 30000); // Simulate 30-second video
+        </script>
+    </body>
+    </html>
+    <?php
+}
+
+// Serve combined video file
+function serveCombinedVideo() {
+    checkAdminSession();
+
+    $fileName = $_GET['file'] ?? null;
+
+    if (!$fileName) {
+        http_response_code(400);
+        echo "No file specified.";
+        exit;
+    }
+
+    // Sanitize filename to prevent directory traversal
+    $fileName = basename($fileName);
+    $filePath = __DIR__ . '/../temp/' . $fileName;
+
+    // Verify the file exists and is in the temp directory
+    if (!file_exists($filePath) || strpos(realpath($filePath), realpath(__DIR__ . '/../temp/')) !== 0) {
+        http_response_code(404);
+        echo "File not found.";
+        exit;
+    }
+
+    // Determine the content type based on file extension
+    $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+
+    switch ($extension) {
+        case 'webm':
+            $contentType = 'video/webm';
+            break;
+        case 'mp4':
+            $contentType = 'video/mp4';
+            break;
+        case 'mov':
+            $contentType = 'video/quicktime';
+            break;
+        case 'avi':
+            $contentType = 'video/x-msvideo';
+            break;
+        case 'wmv':
+            $contentType = 'video/x-ms-wmv';
+            break;
+        case 'flv':
+            $contentType = 'video/x-flv';
+            break;
+        case 'mkv':
+            $contentType = 'video/x-matroska';
+            break;
+        default:
+            $contentType = 'application/octet-stream';
+            break;
+    }
+
+    // Set headers for video streaming
+    header('Content-Type: ' . $contentType);
+    header('Content-Length: ' . filesize($filePath));
+    header('Accept-Ranges: none');
+
+    // Read and output the file
+    readfile($filePath);
     exit;
 }
 
