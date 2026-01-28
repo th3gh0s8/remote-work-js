@@ -3,6 +3,19 @@
 // Determine the action based on the request
 $action = $_GET['action'] ?? 'dashboard';
 
+// Generate CSRF token
+function generateCSRFToken() {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+// Validate CSRF token
+function validateCSRFToken($token) {
+    return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
+}
+
 // Handle different admin actions
 switch ($action) {
     case 'auth':
@@ -23,6 +36,45 @@ switch ($action) {
     case 'logout':
         handleLogout();
         break;
+    case 'edit_user':
+        showEditUserForm();
+        break;
+    case 'update_user':
+        updateUser();
+        break;
+    case 'delete_user':
+        deleteUser();
+        break;
+    case 'add_user':
+        showAddUserForm();
+        break;
+    case 'create_user':
+        createUser();
+        break;
+    case 'reports':
+        showReports();
+        break;
+    case 'notifications':
+        showNotifications();
+        break;
+    case 'mark_notification_read':
+        markNotificationRead();
+        break;
+    case 'backup':
+        showBackupPage();
+        break;
+    case 'create_backup':
+        handleCreateBackup();
+        break;
+    case 'download_backup':
+        handleDownloadBackup();
+        break;
+    case 'restore_backup':
+        handleRestoreBackup();
+        break;
+    case 'delete_backup':
+        handleDeleteBackup();
+        break;
     default:
         // Default to dashboard if action is not recognized
         showDashboard();
@@ -38,11 +90,24 @@ function handleAuth() {
     $admin_password = 'admin123'; // Change this in production!
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        // Validate CSRF token
+        $csrf_token = $_POST['csrf_token'] ?? '';
+        if (!validateCSRFToken($csrf_token)) {
+            header('Location: ?action=login&error=invalid_request');
+            exit;
+        }
+
         $username = $_POST['username'] ?? '';
         $password = $_POST['password'] ?? '';
 
         if ($username === $admin_username && $password === $admin_password) {
+            // Regenerate session ID to prevent session fixation
+            session_regenerate_id(true);
+
             $_SESSION['admin_logged_in'] = true;
+            $_SESSION['login_time'] = time(); // Track login time
+            $_SESSION['ip_address'] = $_SERVER['REMOTE_ADDR']; // Track IP address
+
             header('Location: ?action=dashboard');
             exit;
         } else {
@@ -140,6 +205,7 @@ function showLogin() {
         <div class="login-container">
             <h2>Admin Login</h2>
             <form method="post" action="?action=auth">
+                <input type="hidden" name="csrf_token" value="<?= generateCSRFToken(); ?>">
                 <div class="form-group">
                     <label for="username">Username:</label>
                     <input type="text" id="username" name="username" required>
@@ -152,7 +218,15 @@ function showLogin() {
             </form>
 
             <?php if (isset($_GET['error'])): ?>
-                <div class="error">Invalid credentials. Please try again.</div>
+                <?php if ($_GET['error'] === 'session_expired'): ?>
+                    <div class="error">Your session has expired. Please log in again.</div>
+                <?php elseif ($_GET['error'] === 'security_violation'): ?>
+                    <div class="error">Security violation detected. Please contact the administrator.</div>
+                <?php elseif ($_GET['error'] === 'invalid_request'): ?>
+                    <div class="error">Invalid request. Please try again.</div>
+                <?php else: ?>
+                    <div class="error">Invalid credentials. Please try again.</div>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
     </body>
@@ -162,13 +236,7 @@ function showLogin() {
 
 // Show admin dashboard
 function showDashboard() {
-    session_start();
-
-    // Check if admin is logged in
-    if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
-        header('Location: ?action=login');
-        exit;
-    }
+    checkAdminSession();
 
     // Database connection
     $host = 'localhost';
@@ -1017,10 +1085,33 @@ function showDashboard() {
                 <span class="logo-icon">📊</span>
                 <h1>Admin Dashboard</h1>
             </div>
-            <a href="?action=logout" class="logout-btn">Logout</a>
+            <div style="display: flex; gap: 15px;">
+                <a href="?action=notifications" class="logout-btn" style="background: linear-gradient(to right, var(--warning-color), #e67700); position: relative;">
+                    Notifications
+                    <?php
+                    $unread_count = getUnreadNotificationsCount();
+                    if ($unread_count > 0):
+                    ?>
+                        <span style="position: absolute; top: -8px; right: -8px; background-color: red; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 0.75em;"><?= $unread_count ?></span>
+                    <?php endif; ?>
+                </a>
+                <a href="?action=logout" class="logout-btn">Logout</a>
+            </div>
         </div>
 
         <div class="container">
+            <?php if (isset($_GET['success'])): ?>
+                <div style="background-color: #d4edda; color: #155724; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #c3e6cb;">
+                    <?= htmlspecialchars($_GET['success']) ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if (isset($_GET['error'])): ?>
+                <div style="background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
+                    <?= htmlspecialchars($_GET['error']) ?>
+                </div>
+            <?php endif; ?>
+
             <div class="stats">
                 <div class="stat-card">
                     <h3>Total Users</h3>
@@ -1049,6 +1140,9 @@ function showDashboard() {
                 <div class="tab" onclick="switchTab('recordings')">Recordings</div>
                 <div class="tab" onclick="switchTab('activities')">Activities</div>
                 <div class="tab" onclick="switchTab('all-users')">All Users</div>
+                <div class="tab" onclick="switchTab('reports')">Reports</div>
+                <div class="tab" onclick="switchTab('notifications')">Notifications</div>
+                <div class="tab" onclick="switchTab('backup')">Backup</div>
             </div>
 
             <div id="active-users" class="tab-content active">
@@ -1330,6 +1424,7 @@ function showDashboard() {
                 <div class="section">
                     <div class="section-header">
                         <h2><span class="icon">👤</span> All Users</h2>
+                        <button class="action-btn refresh-btn" onclick="addUser()">Add New User</button>
                     </div>
                     <div class="filters">
                         <div class="filter-item">
@@ -1390,8 +1485,8 @@ function showDashboard() {
                                                 <?php endif; ?>
                                             </td>
                                             <td class="recording-actions">
-                                                <button class="edit-btn" disabled>Edit</button>
-                                                <button class="delete-btn" disabled>Delete</button>
+                                                <button class="edit-btn" onclick="editUser(<?= $user['ID'] ?>)">Edit</button>
+                                                <button class="delete-btn" onclick="deleteUser(<?= $user['ID'] ?>, '<?= addslashes(htmlspecialchars($user['Name'])) ?>')">Delete</button>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -1421,6 +1516,48 @@ function showDashboard() {
                     </div>
                 </div>
             </div>
+
+            <div id="reports" class="tab-content">
+                <div class="section">
+                    <div class="section-header">
+                        <h2><span class="icon">📊</span> Reports & Analytics</h2>
+                    </div>
+                    <div class="section-content">
+                        <p>Access detailed reports and analytics about user activity and system usage.</p>
+                        <div style="margin-top: 20px;">
+                            <a href="?action=reports" class="action-btn export-btn" style="display: inline-block; text-decoration: none; color: white;">View Full Reports</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="notifications" class="tab-content">
+                <div class="section">
+                    <div class="section-header">
+                        <h2><span class="icon">🔔</span> Notifications</h2>
+                    </div>
+                    <div class="section-content">
+                        <p>Manage system notifications and alerts.</p>
+                        <div style="margin-top: 20px;">
+                            <a href="?action=notifications" class="action-btn export-btn" style="display: inline-block; text-decoration: none; color: white;">View All Notifications</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="backup" class="tab-content">
+                <div class="section">
+                    <div class="section-header">
+                        <h2><span class="icon">💾</span> Backup & Restore</h2>
+                    </div>
+                    <div class="section-content">
+                        <p>Create and manage database backups to protect your data.</p>
+                        <div style="margin-top: 20px;">
+                            <a href="?action=backup" class="action-btn export-btn" style="display: inline-block; text-decoration: none; color: white;">Manage Backups</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <script>
@@ -1446,7 +1583,10 @@ function showDashboard() {
                     'active-users': 'active_users',
                     'recordings': 'recordings',
                     'activities': 'activities',
-                    'all-users': 'all_users'
+                    'all-users': 'all_users',
+                    'reports': 'reports',
+                    'notifications': 'notifications',
+                    'backup': 'backup'
                 };
 
                 const pageParam = tabMap[tabName] || 'active_users';
@@ -1479,6 +1619,12 @@ function showDashboard() {
                     activeTabId = 'activities';
                 } else if (currentPage === 'all_users') {
                     activeTabId = 'all-users';
+                } else if (currentPage === 'reports') {
+                    activeTabId = 'reports';
+                } else if (currentPage === 'notifications') {
+                    activeTabId = 'notifications';
+                } else if (currentPage === 'backup') {
+                    activeTabId = 'backup';
                 } else {
                     activeTabId = 'active-users'; // Default
                 }
@@ -1494,7 +1640,10 @@ function showDashboard() {
                         (activeTabId === 'active-users' && tabText.includes('Active Users')) ||
                         (activeTabId === 'recordings' && tabText.includes('Recordings')) ||
                         (activeTabId === 'activities' && tabText.includes('Activities')) ||
-                        (activeTabId === 'all-users' && tabText.includes('All Users'))
+                        (activeTabId === 'all-users' && tabText.includes('All Users')) ||
+                        (activeTabId === 'reports' && tabText.includes('Reports')) ||
+                        (activeTabId === 'notifications' && tabText.includes('Notifications')) ||
+                        (activeTabId === 'backup' && tabText.includes('Backup'))
                     ) {
                         tab.classList.add('active');
                     }
@@ -1696,6 +1845,36 @@ function showDashboard() {
                     }
                 }
             });
+
+            function editUser(userId) {
+                // Open a modal or redirect to edit page
+                alert('Edit user functionality would open for user ID: ' + userId);
+                // In a real implementation, you would open a modal or redirect to an edit page
+                window.location.href = '?action=edit_user&id=' + userId;
+            }
+
+            function deleteUser(userId, userName) {
+                if (confirm('Are you sure you want to delete user "' + userName + '"? This action cannot be undone.')) {
+                    // In a real implementation, you would make an AJAX call or submit a form
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = '?action=delete_user&id=' + userId;
+
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'confirm_delete';
+                    input.value = '1';
+
+                    form.appendChild(input);
+                    document.body.appendChild(form);
+                    form.submit();
+                }
+            }
+
+            function addUser() {
+                // Redirect to add user page
+                window.location.href = '?action=add_user';
+            }
         </script>
     </body>
     </html>
@@ -1704,13 +1883,7 @@ function showDashboard() {
 
 // Handle viewing recordings
 function handleView() {
-    session_start();
-
-    // Check if admin is logged in
-    if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
-        header('Location: ?action=login');
-        exit;
-    }
+    checkAdminSession();
 
     // This function handles viewing recordings
     // Since the original application stores recordings in uploads/ directory
@@ -1813,13 +1986,7 @@ function handleView() {
 
 // Handle downloading recordings
 function handleDownload() {
-    session_start();
-
-    // Check if admin is logged in
-    if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
-        header('Location: ?action=login');
-        exit;
-    }
+    checkAdminSession();
 
     // This function handles downloading recordings
     // Since the original application stores recordings in uploads/ directory
@@ -1896,6 +2063,2181 @@ function handleLogout() {
 
     // Redirect to login page
     header('Location: ?action=login');
+    exit;
+}
+
+// Check if admin is logged in and session is valid
+function checkAdminSession() {
+    session_start();
+
+    // Check if admin is logged in
+    if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
+        header('Location: ?action=login');
+        exit;
+    }
+
+    // Check if session has timed out (30 minutes of inactivity)
+    $timeout_duration = 30 * 60; // 30 minutes in seconds
+
+    if (isset($_SESSION['login_time']) && (time() - $_SESSION['login_time'] > $timeout_duration)) {
+        // Session has expired
+        session_destroy();
+        header('Location: ?action=login&error=session_expired');
+        exit;
+    }
+
+    // Check if IP address has changed (possible session hijacking)
+    if (isset($_SESSION['ip_address']) && $_SESSION['ip_address'] !== $_SERVER['REMOTE_ADDR']) {
+        session_destroy();
+        header('Location: ?action=login&error=security_violation');
+        exit;
+    }
+
+    // Refresh login time to prevent timeout
+    $_SESSION['login_time'] = time();
+}
+
+// Show edit user form
+function showEditUserForm() {
+    checkAdminSession();
+
+    // Get user ID from GET parameter
+    $userId = $_GET['id'] ?? null;
+
+    if (!$userId) {
+        header('Location: ?action=dashboard');
+        exit;
+    }
+
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        die("Connection failed: " . $e->getMessage());
+    }
+
+    // Fetch user data
+    $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
+    $stmt->execute([$userId]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$user) {
+        header('Location: ?action=dashboard');
+        exit;
+    }
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Edit User - Admin Dashboard</title>
+        <style>
+            :root {
+                --primary-color: #4361ee;
+                --secondary-color: #3f37c9;
+                --success-color: #4cc9f0;
+                --danger-color: #f72585;
+                --warning-color: #f8961e;
+                --info-color: #4895ef;
+                --light-bg: #f8f9fa;
+                --dark-bg: #212529;
+                --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                --border-radius: 8px;
+                --transition: all 0.3s ease;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #f5f7fb;
+                color: #333;
+                line-height: 1.6;
+            }
+
+            .header {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 15px 30px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-radius: var(--border-radius);
+                margin-bottom: 20px;
+            }
+
+            .header h1 {
+                margin: 0;
+                font-size: 1.5em;
+                font-weight: 600;
+            }
+
+            .back-btn {
+                background: linear-gradient(to right, var(--info-color), var(--primary-color));
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 30px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                font-weight: 500;
+                transition: var(--transition);
+            }
+
+            .back-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 10px rgba(67, 97, 238, 0.4);
+            }
+
+            .form-container {
+                max-width: 600px;
+                margin: 0 auto;
+                background: white;
+                padding: 30px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+            }
+
+            .form-group {
+                margin-bottom: 20px;
+            }
+
+            .form-group label {
+                display: block;
+                margin-bottom: 8px;
+                font-weight: 500;
+                color: #555;
+            }
+
+            .form-group input,
+            .form-group select {
+                width: 100%;
+                padding: 12px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                font-size: 1em;
+                transition: var(--transition);
+            }
+
+            .form-group input:focus,
+            .form-group select:focus {
+                outline: none;
+                border-color: var(--primary-color);
+                box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.2);
+            }
+
+            .submit-btn {
+                background: linear-gradient(to right, var(--success-color), #4895ef);
+                color: white;
+                border: none;
+                padding: 14px 25px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 1.1em;
+                font-weight: 500;
+                width: 100%;
+                transition: var(--transition);
+            }
+
+            .submit-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(76, 201, 240, 0.4);
+            }
+
+            .error {
+                color: var(--danger-color);
+                margin-top: 10px;
+                text-align: center;
+            }
+
+            .success {
+                color: var(--success-color);
+                margin-top: 10px;
+                text-align: center;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Edit User</h1>
+            <a href="?action=dashboard" class="back-btn">Back to Dashboard</a>
+        </div>
+
+        <div class="form-container">
+            <form method="post" action="?action=update_user&id=<?= $user['ID'] ?>">
+                <div class="form-group">
+                    <label for="RepID">Rep ID:</label>
+                    <input type="text" id="RepID" name="RepID" value="<?= htmlspecialchars($user['RepID']) ?>" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="Name">Name:</label>
+                    <input type="text" id="Name" name="Name" value="<?= htmlspecialchars($user['Name']) ?>" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="br_id">Branch ID:</label>
+                    <input type="text" id="br_id" name="br_id" value="<?= htmlspecialchars($user['br_id']) ?>">
+                </div>
+
+                <div class="form-group">
+                    <label for="emailAddress">Email Address:</label>
+                    <input type="email" id="emailAddress" name="emailAddress" value="<?= htmlspecialchars($user['emailAddress']) ?>">
+                </div>
+
+                <div class="form-group">
+                    <label for="Actives">Account Status:</label>
+                    <select id="Actives" name="Actives">
+                        <option value="YES" <?= $user['Actives'] === 'YES' ? 'selected' : '' ?>>Active</option>
+                        <option value="NO" <?= $user['Actives'] === 'NO' ? 'selected' : '' ?>>Inactive</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password (leave blank to keep current):</label>
+                    <input type="password" id="password" name="password">
+                </div>
+
+                <button type="submit" class="submit-btn">Update User</button>
+            </form>
+
+            <?php if (isset($_GET['error'])): ?>
+                <div class="error"><?= htmlspecialchars($_GET['error']) ?></div>
+            <?php endif; ?>
+
+            <?php if (isset($_GET['success'])): ?>
+                <div class="success"><?= htmlspecialchars($_GET['success']) ?></div>
+            <?php endif; ?>
+        </div>
+    </body>
+    </html>
+    <?php
+}
+
+// Update user in database
+function updateUser() {
+    checkAdminSession();
+
+    // Get user ID from GET parameter
+    $userId = $_GET['id'] ?? null;
+
+    if (!$userId) {
+        header('Location: ?action=dashboard');
+        exit;
+    }
+
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        die("Connection failed: " . $e->getMessage());
+    }
+
+    // Get form data
+    $repId = $_POST['RepID'] ?? '';
+    $name = $_POST['Name'] ?? '';
+    $brId = $_POST['br_id'] ?? '';
+    $email = $_POST['emailAddress'] ?? '';
+    $status = $_POST['Actives'] ?? 'YES';
+    $password = $_POST['password'] ?? '';
+
+    // Validation
+    if (empty($repId) || empty($name)) {
+        header('Location: ?action=edit_user&id=' . $userId . '&error=Rep ID and Name are required');
+        exit;
+    }
+
+    try {
+        if (!empty($password)) {
+            // Hash the password if provided
+            $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+            // Update user with new password
+            $stmt = $pdo->prepare("UPDATE salesrep SET RepID = ?, Name = ?, br_id = ?, emailAddress = ?, Actives = ?, password = ? WHERE ID = ?");
+            $stmt->execute([$repId, $name, $brId, $email, $status, $hashedPassword, $userId]);
+        } else {
+            // Update user without changing password
+            $stmt = $pdo->prepare("UPDATE salesrep SET RepID = ?, Name = ?, br_id = ?, emailAddress = ?, Actives = ? WHERE ID = ?");
+            $stmt->execute([$repId, $name, $brId, $email, $status, $userId]);
+        }
+
+        header('Location: ?action=dashboard&success=User updated successfully');
+        exit;
+    } catch(PDOException $e) {
+        header('Location: ?action=edit_user&id=' . $userId . '&error=Error updating user: ' . $e->getMessage());
+        exit;
+    }
+}
+
+// Delete user from database
+function deleteUser() {
+    checkAdminSession();
+
+    // Get user ID from GET parameter
+    $userId = $_GET['id'] ?? null;
+
+    if (!$userId) {
+        header('Location: ?action=dashboard');
+        exit;
+    }
+
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        die("Connection failed: " . $e->getMessage());
+    }
+
+    // Check if user exists
+    $stmt = $pdo->prepare("SELECT Name FROM salesrep WHERE ID = ?");
+    $stmt->execute([$userId]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$user) {
+        header('Location: ?action=dashboard&error=User not found');
+        exit;
+    }
+
+    // Perform deletion
+    try {
+        $stmt = $pdo->prepare("DELETE FROM salesrep WHERE ID = ?");
+        $stmt->execute([$userId]);
+
+        // Also delete associated user activities
+        $stmt = $pdo->prepare("DELETE FROM user_activity WHERE salesrepTb = ?");
+        $stmt->execute([$userId]);
+
+        // Also delete associated web images
+        $stmt = $pdo->prepare("DELETE FROM web_images WHERE user_id = ?");
+        $stmt->execute([$userId]);
+
+        header('Location: ?action=dashboard&success=User deleted successfully');
+        exit;
+    } catch(PDOException $e) {
+        header('Location: ?action=dashboard&error=Error deleting user: ' . $e->getMessage());
+        exit;
+    }
+}
+
+// Show add user form
+function showAddUserForm() {
+    checkAdminSession();
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Add New User - Admin Dashboard</title>
+        <style>
+            :root {
+                --primary-color: #4361ee;
+                --secondary-color: #3f37c9;
+                --success-color: #4cc9f0;
+                --danger-color: #f72585;
+                --warning-color: #f8961e;
+                --info-color: #4895ef;
+                --light-bg: #f8f9fa;
+                --dark-bg: #212529;
+                --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                --border-radius: 8px;
+                --transition: all 0.3s ease;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #f5f7fb;
+                color: #333;
+                line-height: 1.6;
+            }
+
+            .header {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 15px 30px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-radius: var(--border-radius);
+                margin-bottom: 20px;
+            }
+
+            .header h1 {
+                margin: 0;
+                font-size: 1.5em;
+                font-weight: 600;
+            }
+
+            .back-btn {
+                background: linear-gradient(to right, var(--info-color), var(--primary-color));
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 30px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                font-weight: 500;
+                transition: var(--transition);
+            }
+
+            .back-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 10px rgba(67, 97, 238, 0.4);
+            }
+
+            .form-container {
+                max-width: 600px;
+                margin: 0 auto;
+                background: white;
+                padding: 30px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+            }
+
+            .form-group {
+                margin-bottom: 20px;
+            }
+
+            .form-group label {
+                display: block;
+                margin-bottom: 8px;
+                font-weight: 500;
+                color: #555;
+            }
+
+            .form-group input,
+            .form-group select {
+                width: 100%;
+                padding: 12px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                font-size: 1em;
+                transition: var(--transition);
+            }
+
+            .form-group input:focus,
+            .form-group select:focus {
+                outline: none;
+                border-color: var(--primary-color);
+                box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.2);
+            }
+
+            .submit-btn {
+                background: linear-gradient(to right, var(--success-color), #4895ef);
+                color: white;
+                border: none;
+                padding: 14px 25px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 1.1em;
+                font-weight: 500;
+                width: 100%;
+                transition: var(--transition);
+            }
+
+            .submit-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(76, 201, 240, 0.4);
+            }
+
+            .error {
+                color: var(--danger-color);
+                margin-top: 10px;
+                text-align: center;
+            }
+
+            .success {
+                color: var(--success-color);
+                margin-top: 10px;
+                text-align: center;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Add New User</h1>
+            <a href="?action=dashboard" class="back-btn">Back to Dashboard</a>
+        </div>
+
+        <div class="form-container">
+            <form method="post" action="?action=create_user">
+                <div class="form-group">
+                    <label for="RepID">Rep ID:</label>
+                    <input type="text" id="RepID" name="RepID" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="Name">Name:</label>
+                    <input type="text" id="Name" name="Name" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="br_id">Branch ID:</label>
+                    <input type="text" id="br_id" name="br_id">
+                </div>
+
+                <div class="form-group">
+                    <label for="emailAddress">Email Address:</label>
+                    <input type="email" id="emailAddress" name="emailAddress">
+                </div>
+
+                <div class="form-group">
+                    <label for="Actives">Account Status:</label>
+                    <select id="Actives" name="Actives">
+                        <option value="YES">Active</option>
+                        <option value="NO">Inactive</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+
+                <button type="submit" class="submit-btn">Add User</button>
+            </form>
+
+            <?php if (isset($_GET['error'])): ?>
+                <div class="error"><?= htmlspecialchars($_GET['error']) ?></div>
+            <?php endif; ?>
+
+            <?php if (isset($_GET['success'])): ?>
+                <div class="success"><?= htmlspecialchars($_GET['success']) ?></div>
+            <?php endif; ?>
+        </div>
+    </body>
+    </html>
+    <?php
+}
+
+// Create new user in database
+function createUser() {
+    checkAdminSession();
+
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        die("Connection failed: " . $e->getMessage());
+    }
+
+    // Get form data
+    $repId = $_POST['RepID'] ?? '';
+    $name = $_POST['Name'] ?? '';
+    $brId = $_POST['br_id'] ?? '';
+    $email = $_POST['emailAddress'] ?? '';
+    $status = $_POST['Actives'] ?? 'YES';
+    $password = $_POST['password'] ?? '';
+
+    // Validation
+    if (empty($repId) || empty($name) || empty($password)) {
+        header('Location: ?action=add_user&error=Rep ID, Name, and Password are required');
+        exit;
+    }
+
+    // Check if RepID already exists
+    $stmt = $pdo->prepare("SELECT ID FROM salesrep WHERE RepID = ?");
+    $stmt->execute([$repId]);
+    if ($stmt->fetch()) {
+        header('Location: ?action=add_user&error=Rep ID already exists');
+        exit;
+    }
+
+    try {
+        // Hash the password
+        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+
+        // Insert new user
+        $stmt = $pdo->prepare("INSERT INTO salesrep (RepID, Name, br_id, emailAddress, Actives, password, join_date) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+        $stmt->execute([$repId, $name, $brId, $email, $status, $hashedPassword]);
+
+        header('Location: ?action=dashboard&success=User created successfully');
+        exit;
+    } catch(PDOException $e) {
+        header('Location: ?action=add_user&error=Error creating user: ' . $e->getMessage());
+        exit;
+    }
+}
+
+// Show reports and analytics
+function showReports() {
+    checkAdminSession();
+
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        die("Connection failed: " . $e->getMessage());
+    }
+
+    // Get date range for reports
+    $start_date = $_GET['report_start_date'] ?? date('Y-m-01'); // First day of current month
+    $end_date = $_GET['report_end_date'] ?? date('Y-m-d');     // Current date
+
+    // Total users count
+    $stmt = $pdo->query("SELECT COUNT(*) as total FROM salesrep WHERE Actives = 'YES'");
+    $total_users = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+    // Active users in date range
+    $stmt = $pdo->prepare("
+        SELECT COUNT(DISTINCT salesrepTb) as active_count
+        FROM user_activity
+        WHERE rDateTime BETWEEN ? AND ?
+    ");
+    $stmt->execute([$start_date . ' 00:00:00', $end_date . ' 23:59:59']);
+    $active_users = $stmt->fetch(PDO::FETCH_ASSOC)['active_count'];
+
+    // Total recordings in date range
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) as total_recordings
+        FROM web_images
+        WHERE type = 'recording' AND date BETWEEN ? AND ?
+    ");
+    $stmt->execute([$start_date, $end_date]);
+    $total_recordings = $stmt->fetch(PDO::FETCH_ASSOC)['total_recordings'];
+
+    // Recordings by user in date range
+    $stmt = $pdo->prepare("
+        SELECT s.Name, s.RepID, COUNT(w.ID) as recording_count
+        FROM web_images w
+        LEFT JOIN salesrep s ON w.user_id = s.ID
+        WHERE w.type = 'recording' AND w.date BETWEEN ? AND ?
+        GROUP BY w.user_id
+        ORDER BY recording_count DESC
+    ");
+    $stmt->execute([$start_date, $end_date]);
+    $recordings_by_user = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Activity types distribution
+    $stmt = $pdo->prepare("
+        SELECT activity_type, COUNT(*) as count
+        FROM user_activity
+        WHERE rDateTime BETWEEN ? AND ?
+        GROUP BY activity_type
+        ORDER BY count DESC
+    ");
+    $stmt->execute([$start_date . ' 00:00:00', $end_date . ' 23:59:59']);
+    $activity_types = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Daily activity trend
+    $stmt = $pdo->prepare("
+        SELECT DATE(rDateTime) as activity_date, COUNT(*) as daily_count
+        FROM user_activity
+        WHERE rDateTime BETWEEN ? AND ?
+        GROUP BY DATE(rDateTime)
+        ORDER BY activity_date ASC
+    ");
+    $stmt->execute([$start_date . ' 00:00:00', $end_date . ' 23:59:59']);
+    $daily_activity = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // User activity duration (if duration is tracked)
+    $stmt = $pdo->prepare("
+        SELECT s.Name, s.RepID, SUM(ua.duration) as total_duration
+        FROM user_activity ua
+        LEFT JOIN salesrep s ON ua.salesrepTb = s.ID
+        WHERE ua.rDateTime BETWEEN ? AND ? AND ua.duration IS NOT NULL
+        GROUP BY ua.salesrepTb
+        ORDER BY total_duration DESC
+        LIMIT 10
+    ");
+    $stmt->execute([$start_date . ' 00:00:00', $end_date . ' 23:59:59']);
+    $user_durations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reports & Analytics - Admin Dashboard</title>
+        <style>
+            :root {
+                --primary-color: #4361ee;
+                --secondary-color: #3f37c9;
+                --success-color: #4cc9f0;
+                --danger-color: #f72585;
+                --warning-color: #f8961e;
+                --info-color: #4895ef;
+                --light-bg: #f8f9fa;
+                --dark-bg: #212529;
+                --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                --border-radius: 8px;
+                --transition: all 0.3s ease;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #f5f7fb;
+                color: #333;
+                line-height: 1.6;
+            }
+
+            .header {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 15px 30px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-radius: var(--border-radius);
+                margin-bottom: 20px;
+            }
+
+            .header h1 {
+                margin: 0;
+                font-size: 1.5em;
+                font-weight: 600;
+            }
+
+            .back-btn {
+                background: linear-gradient(to right, var(--info-color), var(--primary-color));
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 30px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                font-weight: 500;
+                transition: var(--transition);
+            }
+
+            .back-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 10px rgba(67, 97, 238, 0.4);
+            }
+
+            .filters {
+                background-color: white;
+                padding: 20px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+                margin-bottom: 20px;
+            }
+
+            .filter-row {
+                display: flex;
+                gap: 15px;
+                align-items: end;
+            }
+
+            .filter-item {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+            }
+
+            .filter-item label {
+                margin-bottom: 5px;
+                font-weight: 500;
+                color: #555;
+            }
+
+            .filter-item input {
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                font-size: 1em;
+            }
+
+            .apply-btn {
+                background: linear-gradient(to right, var(--success-color), #4895ef);
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-weight: 500;
+                height: fit-content;
+            }
+
+            .apply-btn:hover {
+                opacity: 0.9;
+            }
+
+            .reports-container {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 20px;
+                margin-bottom: 30px;
+            }
+
+            .report-card {
+                background: white;
+                padding: 20px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+                transition: var(--transition);
+            }
+
+            .report-card h3 {
+                margin-top: 0;
+                color: var(--primary-color);
+                border-bottom: 2px solid #f0f0f0;
+                padding-bottom: 10px;
+            }
+
+            .stats-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 15px;
+                margin-bottom: 20px;
+            }
+
+            .stat-box {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 15px;
+                border-radius: var(--border-radius);
+                text-align: center;
+            }
+
+            .stat-box .number {
+                font-size: 2em;
+                font-weight: bold;
+                display: block;
+            }
+
+            .stat-box .label {
+                font-size: 0.9em;
+                opacity: 0.9;
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 10px;
+            }
+
+            th, td {
+                padding: 12px;
+                text-align: left;
+                border-bottom: 1px solid #eee;
+            }
+
+            th {
+                background-color: #f8f9fa;
+                font-weight: 600;
+                color: #495057;
+            }
+
+            tr:hover {
+                background-color: #f0f5ff;
+            }
+
+            .chart-placeholder {
+                background: #f8f9fa;
+                height: 300px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: var(--border-radius);
+                margin: 10px 0;
+                color: #6c757d;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Reports & Analytics</h1>
+            <a href="?action=dashboard" class="back-btn">Back to Dashboard</a>
+        </div>
+
+        <div class="filters">
+            <div class="filter-row">
+                <div class="filter-item">
+                    <label for="report_start_date">Start Date:</label>
+                    <input type="date" id="report_start_date" name="report_start_date" value="<?= $start_date ?>">
+                </div>
+                <div class="filter-item">
+                    <label for="report_end_date">End Date:</label>
+                    <input type="date" id="report_end_date" name="report_end_date" value="<?= $end_date ?>">
+                </div>
+                <button class="apply-btn" onclick="applyReportFilters()">Apply Filters</button>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-box">
+                <span class="number"><?= $total_users ?></span>
+                <span class="label">Total Users</span>
+            </div>
+            <div class="stat-box">
+                <span class="number"><?= $active_users ?></span>
+                <span class="label">Active in Period</span>
+            </div>
+            <div class="stat-box">
+                <span class="number"><?= $total_recordings ?></span>
+                <span class="label">Recordings in Period</span>
+            </div>
+        </div>
+
+        <div class="reports-container">
+            <div class="report-card">
+                <h3>Recordings by User</h3>
+                <?php if (count($recordings_by_user) > 0): ?>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Rep ID</th>
+                                <th>Recordings</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($recordings_by_user as $row): ?>
+                                <tr>
+                                    <td><?= htmlspecialchars($row['Name'] ?? 'N/A') ?></td>
+                                    <td><?= htmlspecialchars($row['RepID'] ?? 'N/A') ?></td>
+                                    <td><?= $row['recording_count'] ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php else: ?>
+                    <p>No recordings found in the selected period.</p>
+                <?php endif; ?>
+            </div>
+
+            <div class="report-card">
+                <h3>Activity Types Distribution</h3>
+                <?php if (count($activity_types) > 0): ?>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Activity Type</th>
+                                <th>Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($activity_types as $row): ?>
+                                <tr>
+                                    <td><?= ucfirst(str_replace('-', ' ', $row['activity_type'])) ?></td>
+                                    <td><?= $row['count'] ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php else: ?>
+                    <p>No activities found in the selected period.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="reports-container">
+            <div class="report-card">
+                <h3>Daily Activity Trend</h3>
+                <?php if (count($daily_activity) > 0): ?>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Activities</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($daily_activity as $row): ?>
+                                <tr>
+                                    <td><?= $row['activity_date'] ?></td>
+                                    <td><?= $row['daily_count'] ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php else: ?>
+                    <p>No daily activity data found in the selected period.</p>
+                <?php endif; ?>
+            </div>
+
+            <div class="report-card">
+                <h3>Top Users by Duration</h3>
+                <?php if (count($user_durations) > 0): ?>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Rep ID</th>
+                                <th>Total Duration (sec)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($user_durations as $row): ?>
+                                <tr>
+                                    <td><?= htmlspecialchars($row['Name'] ?? 'N/A') ?></td>
+                                    <td><?= htmlspecialchars($row['RepID'] ?? 'N/A') ?></td>
+                                    <td><?= round($row['total_duration'], 2) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php else: ?>
+                    <p>No duration data found in the selected period. (Duration tracking may not be enabled)</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <script>
+            function applyReportFilters() {
+                const startDate = document.getElementById('report_start_date').value;
+                const endDate = document.getElementById('report_end_date').value;
+
+                let url = '?action=reports&';
+                if (startDate) {
+                    url += `report_start_date=${startDate}&`;
+                }
+                if (endDate) {
+                    url += `report_end_date=${endDate}&`;
+                }
+
+                // Remove trailing '&' if present
+                if (url.endsWith('&')) {
+                    url = url.slice(0, -1);
+                }
+
+                window.location.href = url;
+            }
+        </script>
+    </body>
+    </html>
+    <?php
+}
+
+// Add a notification
+function addNotification($title, $message, $type = 'info', $priority = 'normal') {
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        error_log("Database connection failed: " . $e->getMessage());
+        return false;
+    }
+
+    try {
+        $stmt = $pdo->prepare("INSERT INTO admin_notifications (title, message, type, priority, created_at) VALUES (?, ?, ?, ?, NOW())");
+        $stmt->execute([$title, $message, $type, $priority]);
+        return true;
+    } catch(PDOException $e) {
+        error_log("Error adding notification: " . $e->getMessage());
+        return false;
+    }
+}
+
+// Get notifications
+function getNotifications($limit = 10, $offset = 0) {
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        error_log("Database connection failed: " . $e->getMessage());
+        return [];
+    }
+
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM admin_notifications ORDER BY created_at DESC LIMIT ? OFFSET ?");
+        $stmt->execute([$limit, $offset]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch(PDOException $e) {
+        error_log("Error getting notifications: " . $e->getMessage());
+        return [];
+    }
+}
+
+// Mark notification as read
+function markNotificationAsRead($notificationId) {
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        error_log("Database connection failed: " . $e->getMessage());
+        return false;
+    }
+
+    try {
+        $stmt = $pdo->prepare("UPDATE admin_notifications SET is_read = 1 WHERE id = ?");
+        $stmt->execute([$notificationId]);
+        return true;
+    } catch(PDOException $e) {
+        error_log("Error marking notification as read: " . $e->getMessage());
+        return false;
+    }
+}
+
+// Get unread notifications count
+function getUnreadNotificationsCount() {
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        error_log("Database connection failed: " . $e->getMessage());
+        return 0;
+    }
+
+    try {
+        $stmt = $pdo->query("SELECT COUNT(*) as count FROM admin_notifications WHERE is_read = 0");
+        return $stmt->fetch(PDO::FETCH_ASSOC)['count'];
+    } catch(PDOException $e) {
+        error_log("Error getting unread notifications count: " . $e->getMessage());
+        return 0;
+    }
+}
+
+// Create notifications table if it doesn't exist
+function createNotificationsTable() {
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        error_log("Database connection failed: " . $e->getMessage());
+        return false;
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            CREATE TABLE IF NOT EXISTS admin_notifications (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                message TEXT NOT NULL,
+                type ENUM('info', 'success', 'warning', 'error') DEFAULT 'info',
+                priority ENUM('low', 'normal', 'high', 'critical') DEFAULT 'normal',
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+        $stmt->execute();
+        return true;
+    } catch(PDOException $e) {
+        error_log("Error creating notifications table: " . $e->getMessage());
+        return false;
+    }
+}
+
+// Show notifications page
+function showNotifications() {
+    checkAdminSession();
+
+    // Get notifications
+    $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+    $limit = 10;
+    $offset = ($page - 1) * $limit;
+
+    $notifications = getNotifications($limit, $offset);
+
+    // Get total count for pagination
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root';
+    $password = '';
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $countStmt = $pdo->query("SELECT COUNT(*) as total FROM admin_notifications");
+        $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+        $totalPages = ceil($totalCount / $limit);
+    } catch(PDOException $e) {
+        $totalPages = 1;
+    }
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Notifications - Admin Dashboard</title>
+        <style>
+            :root {
+                --primary-color: #4361ee;
+                --secondary-color: #3f37c9;
+                --success-color: #4cc9f0;
+                --danger-color: #f72585;
+                --warning-color: #f8961e;
+                --info-color: #4895ef;
+                --light-bg: #f8f9fa;
+                --dark-bg: #212529;
+                --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                --border-radius: 8px;
+                --transition: all 0.3s ease;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #f5f7fb;
+                color: #333;
+                line-height: 1.6;
+            }
+
+            .header {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 15px 30px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-radius: var(--border-radius);
+                margin-bottom: 20px;
+            }
+
+            .header h1 {
+                margin: 0;
+                font-size: 1.5em;
+                font-weight: 600;
+            }
+
+            .back-btn {
+                background: linear-gradient(to right, var(--info-color), var(--primary-color));
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 30px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                font-weight: 500;
+                transition: var(--transition);
+            }
+
+            .back-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 10px rgba(67, 97, 238, 0.4);
+            }
+
+            .notification-list {
+                display: flex;
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .notification {
+                background: white;
+                padding: 20px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+                border-left: 4px solid var(--info-color);
+                transition: var(--transition);
+            }
+
+            .notification.unread {
+                border-left: 4px solid var(--primary-color);
+                background-color: #f0f7ff;
+            }
+
+            .notification.info {
+                border-left-color: var(--info-color);
+            }
+
+            .notification.success {
+                border-left-color: var(--success-color);
+            }
+
+            .notification.warning {
+                border-left-color: var(--warning-color);
+            }
+
+            .notification.error {
+                border-left-color: var(--danger-color);
+            }
+
+            .notification-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 10px;
+            }
+
+            .notification-title {
+                font-weight: 600;
+                font-size: 1.1em;
+                color: #333;
+            }
+
+            .notification-time {
+                font-size: 0.8em;
+                color: #6c757d;
+            }
+
+            .notification-body {
+                color: #555;
+                margin-bottom: 10px;
+            }
+
+            .notification-actions {
+                display: flex;
+                gap: 10px;
+            }
+
+            .mark-read-btn {
+                background: var(--info-color);
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 0.85em;
+            }
+
+            .pagination {
+                display: flex;
+                justify-content: center;
+                margin-top: 25px;
+                padding-top: 20px;
+                border-top: 1px solid #eee;
+            }
+
+            .pagination a {
+                padding: 10px 16px;
+                margin: 0 4px;
+                text-decoration: none;
+                border: 1px solid #ddd;
+                color: var(--primary-color);
+                border-radius: 5px;
+                transition: var(--transition);
+            }
+
+            .pagination a.active {
+                background-color: var(--primary-color);
+                color: white;
+                border-color: var(--primary-color);
+            }
+
+            .pagination a:hover:not(.active) {
+                background-color: #e9ecef;
+                border-color: #adb5bd;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Notifications</h1>
+            <a href="?action=dashboard" class="back-btn">Back to Dashboard</a>
+        </div>
+
+        <div class="notification-list">
+            <?php if (count($notifications) > 0): ?>
+                <?php foreach ($notifications as $notification): ?>
+                    <div class="notification <?= $notification['is_read'] ? '' : 'unread' ?> <?= $notification['type'] ?>" data-notification-id="<?= $notification['id'] ?>">
+                        <div class="notification-header">
+                            <div class="notification-title"><?= htmlspecialchars($notification['title']) ?></div>
+                            <div class="notification-time"><?= $notification['created_at'] ?></div>
+                        </div>
+                        <div class="notification-body">
+                            <?= htmlspecialchars($notification['message']) ?>
+                        </div>
+                        <div class="notification-actions">
+                            <?php if (!$notification['is_read']): ?>
+                                <button class="mark-read-btn" onclick="markAsRead(<?= $notification['id'] ?>)">Mark as Read</button>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <div style="text-align: center; padding: 40px; color: #6c757d;">
+                    <h3>No notifications</h3>
+                    <p>You don't have any notifications at this time.</p>
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination">
+            <?php if ($page > 1): ?>
+                <a href="?action=notifications&page=<?= $page - 1 ?>">&laquo; Previous</a>
+            <?php endif; ?>
+
+            <?php for ($i = max(1, $page - 2); $i <= min($totalPages, $page + 2); $i++): ?>
+                <a href="?action=notifications&page=<?= $i ?>"
+                   class="<?= $i == $page ? 'active' : '' ?>">
+                    <?= $i ?>
+                </a>
+            <?php endfor; ?>
+
+            <?php if ($page < $totalPages): ?>
+                <a href="?action=notifications&page=<?= $page + 1 ?>">Next &raquo;</a>
+            <?php endif; ?>
+        </div>
+
+        <script>
+            function markAsRead(notificationId) {
+                // Send AJAX request to mark notification as read
+                fetch(`?action=mark_notification_read&id=\${notificationId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Update UI to reflect that notification is read
+                        const notificationElement = document.querySelector(`.notification[data-notification-id="\${notificationId}"]`);
+                        if (notificationElement) {
+                            notificationElement.classList.remove('unread');
+                            notificationElement.querySelector('.mark-read-btn').remove();
+                        }
+                    } else {
+                        alert('Error marking notification as read');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error marking notification as read');
+                });
+            }
+        </script>
+    </body>
+    </html>
+    <?php
+}
+
+// Mark notification as read via AJAX
+function markNotificationRead() {
+    checkAdminSession();
+
+    $notificationId = $_GET['id'] ?? null;
+
+    if ($notificationId) {
+        $result = markNotificationAsRead($notificationId);
+        header('Content-Type: application/json');
+        echo json_encode(['success' => $result]);
+    } else {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'error' => 'Invalid notification ID']);
+    }
+    exit;
+}
+
+// Initialize notifications table on script load
+createNotificationsTable();
+
+// Add some sample notifications for testing
+// addNotification('System Update', 'A new version of the system is available for update.', 'info', 'normal');
+// addNotification('Security Alert', 'Unusual login activity detected from IP 192.168.1.100', 'warning', 'high');
+
+// Backup and restore functionality
+
+// Add backup/restore action cases to the switch statement
+// Note: These were added earlier in the switch statement
+
+// Create backup of database
+function createBackup() {
+    checkAdminSession();
+
+    // Database connection info
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root';
+    $password = '';
+
+    // Define backup directory
+    $backup_dir = __DIR__ . '/../backups/';
+
+    // Create backup directory if it doesn't exist
+    if (!is_dir($backup_dir)) {
+        mkdir($backup_dir, 0755, true);
+    }
+
+    // Generate backup filename with timestamp
+    $timestamp = date('Y-m-d_H-i-s');
+    $filename = "backup_{$timestamp}.sql";
+    $filepath = $backup_dir . $filename;
+
+    // Create tables list to backup
+    $tables = ['salesrep', 'user_activity', 'web_images', 'admin_notifications'];
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $backup_content = "-- Database Backup for remote-xwork\n";
+        $backup_content .= "-- Generated on: " . date('Y-m-d H:i:s') . "\n\n";
+        $backup_content .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
+
+        foreach ($tables as $table) {
+            // Get table structure
+            $table_info = $pdo->query("SHOW CREATE TABLE `$table`")->fetch(PDO::FETCH_NUM);
+            $backup_content .= $table_info[1] . ";\n\n";
+
+            // Get table data
+            $result = $pdo->query("SELECT * FROM `$table`");
+            while ($row = $result->fetch(PDO::FETCH_NUM)) {
+                $values = array_map(function($value) use ($pdo) {
+                    if ($value === null) {
+                        return 'NULL';
+                    }
+                    return $pdo->quote($value);
+                }, $row);
+
+                $backup_content .= "INSERT INTO `$table` VALUES (" . implode(',', $values) . ");\n";
+            }
+            $backup_content .= "\n";
+        }
+
+        $backup_content .= "SET FOREIGN_KEY_CHECKS=1;\n";
+
+        // Write backup to file
+        file_put_contents($filepath, $backup_content);
+
+        // Return success
+        return [
+            'success' => true,
+            'filename' => $filename,
+            'filepath' => $filepath,
+            'size' => filesize($filepath)
+        ];
+    } catch (PDOException $e) {
+        error_log("Backup creation failed: " . $e->getMessage());
+        return [
+            'success' => false,
+            'error' => $e->getMessage()
+        ];
+    }
+}
+
+// Get list of available backups
+function getBackups() {
+    checkAdminSession();
+
+    $backup_dir = __DIR__ . '/../backups/';
+
+    if (!is_dir($backup_dir)) {
+        return [];
+    }
+
+    $files = scandir($backup_dir);
+    $backups = [];
+
+    foreach ($files as $file) {
+        if (pathinfo($file, PATHINFO_EXTENSION) === 'sql' && strpos($file, 'backup_') === 0) {
+            $filepath = $backup_dir . $file;
+            $backups[] = [
+                'filename' => $file,
+                'size' => filesize($filepath),
+                'modified' => date('Y-m-d H:i:s', filemtime($filepath)),
+                'path' => $filepath
+            ];
+        }
+    }
+
+    // Sort by modification time (newest first)
+    usort($backups, function($a, $b) {
+        return strtotime($b['modified']) - strtotime($a['modified']);
+    });
+
+    return $backups;
+}
+
+// Download backup file
+function downloadBackup($filename) {
+    checkAdminSession();
+
+    $backup_dir = __DIR__ . '/../backups/';
+    $filepath = $backup_dir . basename($filename);
+
+    // Security check: ensure file exists and is in the backup directory
+    if (!file_exists($filepath) || strpos(realpath($filepath), realpath($backup_dir)) !== 0) {
+        header('HTTP/1.0 404 Not Found');
+        exit('Backup file not found');
+    }
+
+    // Set headers for download
+    header('Content-Type: application/sql');
+    header('Content-Disposition: attachment; filename="' . basename($filepath) . '"');
+    header('Content-Length: ' . filesize($filepath));
+
+    // Output file content
+    readfile($filepath);
+    exit;
+}
+
+// Restore from backup
+function restoreFromBackup($filename) {
+    checkAdminSession();
+
+    $backup_dir = __DIR__ . '/../backups/';
+    $filepath = $backup_dir . basename($filename);
+
+    // Security check: ensure file exists and is in the backup directory
+    if (!file_exists($filepath) || strpos(realpath($filepath), realpath($backup_dir)) !== 0) {
+        return [
+            'success' => false,
+            'error' => 'Backup file not found'
+        ];
+    }
+
+    // Database connection info
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root';
+    $password = '';
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Read the backup file
+        $sql = file_get_contents($filepath);
+
+        // Split the SQL into statements
+        $statements = explode(";\n", $sql);
+
+        foreach ($statements as $statement) {
+            $statement = trim($statement);
+            if (!empty($statement)) {
+                $pdo->exec($statement);
+            }
+        }
+
+        // Add a notification about the restore
+        addNotification(
+            'Database Restored',
+            "Database was successfully restored from backup: $filename",
+            'success',
+            'normal'
+        );
+
+        return [
+            'success' => true,
+            'message' => 'Database restored successfully from ' . $filename
+        ];
+    } catch (PDOException $e) {
+        error_log("Restore failed: " . $e->getMessage());
+        return [
+            'success' => false,
+            'error' => $e->getMessage()
+        ];
+    }
+}
+
+// Delete backup file
+function deleteBackup($filename) {
+    checkAdminSession();
+
+    $backup_dir = __DIR__ . '/../backups/';
+    $filepath = $backup_dir . basename($filename);
+
+    // Security check: ensure file exists and is in the backup directory
+    if (!file_exists($filepath) || strpos(realpath($filepath), realpath($backup_dir)) !== 0) {
+        return [
+            'success' => false,
+            'error' => 'Backup file not found'
+        ];
+    }
+
+    if (unlink($filepath)) {
+        return [
+            'success' => true,
+            'message' => 'Backup file deleted successfully'
+        ];
+    } else {
+        return [
+            'success' => false,
+            'error' => 'Could not delete backup file'
+        ];
+    }
+}
+
+// Show backup management page
+function showBackupPage() {
+    checkAdminSession();
+
+    $backups = getBackups();
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Backup & Restore - Admin Dashboard</title>
+        <style>
+            :root {
+                --primary-color: #4361ee;
+                --secondary-color: #3f37c9;
+                --success-color: #4cc9f0;
+                --danger-color: #f72585;
+                --warning-color: #f8961e;
+                --info-color: #4895ef;
+                --light-bg: #f8f9fa;
+                --dark-bg: #212529;
+                --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                --border-radius: 8px;
+                --transition: all 0.3s ease;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #f5f7fb;
+                color: #333;
+                line-height: 1.6;
+            }
+
+            .header {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 15px 30px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-radius: var(--border-radius);
+                margin-bottom: 20px;
+            }
+
+            .header h1 {
+                margin: 0;
+                font-size: 1.5em;
+                font-weight: 600;
+            }
+
+            .back-btn {
+                background: linear-gradient(to right, var(--info-color), var(--primary-color));
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 30px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                font-weight: 500;
+                transition: var(--transition);
+            }
+
+            .back-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 10px rgba(67, 97, 238, 0.4);
+            }
+
+            .backup-section {
+                background: white;
+                padding: 30px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+                margin-bottom: 30px;
+            }
+
+            .section-title {
+                font-size: 1.4em;
+                color: var(--primary-color);
+                margin-bottom: 20px;
+                padding-bottom: 10px;
+                border-bottom: 2px solid #eee;
+            }
+
+            .backup-actions {
+                display: flex;
+                gap: 15px;
+                margin-bottom: 30px;
+                flex-wrap: wrap;
+            }
+
+            .btn {
+                padding: 12px 25px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 1em;
+                font-weight: 500;
+                transition: var(--transition);
+                text-decoration: none;
+                display: inline-block;
+            }
+
+            .create-backup-btn {
+                background: linear-gradient(to right, var(--success-color), #4895ef);
+                color: white;
+            }
+
+            .create-backup-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(76, 201, 240, 0.4);
+            }
+
+            .backup-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 20px;
+            }
+
+            .backup-table th, .backup-table td {
+                padding: 15px;
+                text-align: left;
+                border-bottom: 1px solid #eee;
+            }
+
+            .backup-table th {
+                background-color: #f8f9fa;
+                font-weight: 600;
+                color: #495057;
+            }
+
+            .backup-table tr:hover {
+                background-color: #f0f5ff;
+            }
+
+            .action-buttons {
+                display: flex;
+                gap: 10px;
+            }
+
+            .action-btn {
+                padding: 8px 15px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 0.9em;
+                transition: var(--transition);
+            }
+
+            .download-btn {
+                background: linear-gradient(to right, var(--info-color), #4361ee);
+                color: white;
+            }
+
+            .restore-btn {
+                background: linear-gradient(to right, var(--warning-color), #f8961e);
+                color: white;
+            }
+
+            .delete-btn {
+                background: linear-gradient(to right, var(--danger-color), #e63946);
+                color: white;
+            }
+
+            .action-btn:hover {
+                opacity: 0.9;
+                transform: translateY(-1px);
+            }
+
+            .confirmation-modal {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.5);
+                z-index: 1000;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .modal-content {
+                background: white;
+                padding: 30px;
+                border-radius: var(--border-radius);
+                width: 90%;
+                max-width: 500px;
+                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            }
+
+            .modal-header {
+                margin-bottom: 20px;
+            }
+
+            .modal-actions {
+                display: flex;
+                gap: 10px;
+                margin-top: 20px;
+                justify-content: flex-end;
+            }
+
+            .cancel-btn {
+                background: #6c757d;
+                color: white;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Backup & Restore</h1>
+            <a href="?action=dashboard" class="back-btn">Back to Dashboard</a>
+        </div>
+
+        <div class="backup-section">
+            <h2 class="section-title">Create New Backup</h2>
+            <div class="backup-actions">
+                <button class="btn create-backup-btn" onclick="createBackup()">Create New Backup</button>
+            </div>
+            <p>This will create a complete backup of the database including users, activities, recordings, and notifications.</p>
+        </div>
+
+        <div class="backup-section">
+            <h2 class="section-title">Available Backups</h2>
+            <?php if (count($backups) > 0): ?>
+                <table class="backup-table">
+                    <thead>
+                        <tr>
+                            <th>Filename</th>
+                            <th>Size</th>
+                            <th>Date Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($backups as $backup): ?>
+                            <tr>
+                                <td><?= htmlspecialchars($backup['filename']) ?></td>
+                                <td><?= formatFileSize($backup['size']) ?></td>
+                                <td><?= $backup['modified'] ?></td>
+                                <td class="action-buttons">
+                                    <button class="action-btn download-btn" onclick="downloadBackup('<?= urlencode($backup['filename']) ?>')">Download</button>
+                                    <button class="action-btn restore-btn" onclick="confirmRestore('<?= urlencode($backup['filename']) ?>')">Restore</button>
+                                    <button class="action-btn delete-btn" onclick="confirmDelete('<?= urlencode($backup['filename']) ?>')">Delete</button>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php else: ?>
+                <p>No backups found. Create your first backup using the button above.</p>
+            <?php endif; ?>
+        </div>
+
+        <!-- Confirmation Modal -->
+        <div id="confirmationModal" class="confirmation-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="modalTitle">Confirmation</h3>
+                    <p id="modalMessage">Are you sure you want to proceed?</p>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn cancel-btn" onclick="closeModal()">Cancel</button>
+                    <button id="confirmButton" class="btn create-backup-btn">Confirm</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            function createBackup() {
+                if (confirm('Are you sure you want to create a new backup? This may take a few moments.')) {
+                    window.location.href = '?action=create_backup';
+                }
+            }
+
+            function downloadBackup(filename) {
+                window.location.href = '?action=download_backup&file=' + filename;
+            }
+
+            function confirmRestore(filename) {
+                document.getElementById('modalTitle').textContent = 'Restore Database';
+                document.getElementById('modalMessage').innerHTML = 'Are you sure you want to restore from backup: <strong>' + decodeURIComponent(filename) + '</strong>?<br><br><span style="color: red;">WARNING: This will overwrite all current data!</span>';
+
+                document.getElementById('confirmButton').onclick = function() {
+                    window.location.href = '?action=restore_backup&file=' + filename;
+                };
+
+                document.getElementById('confirmationModal').style.display = 'flex';
+            }
+
+            function confirmDelete(filename) {
+                document.getElementById('modalTitle').textContent = 'Delete Backup';
+                document.getElementById('modalMessage').textContent = 'Are you sure you want to delete backup: ' + decodeURIComponent(filename) + '?';
+
+                document.getElementById('confirmButton').onclick = function() {
+                    window.location.href = '?action=delete_backup&file=' + filename;
+                };
+
+                document.getElementById('confirmationModal').style.display = 'flex';
+            }
+
+            function closeModal() {
+                document.getElementById('confirmationModal').style.display = 'none';
+            }
+
+            // Close modal if clicking outside of it
+            window.onclick = function(event) {
+                const modal = document.getElementById('confirmationModal');
+                if (event.target === modal) {
+                    closeModal();
+                }
+            }
+        </script>
+    </body>
+    </html>
+    <?php
+}
+
+// Format file size for display
+function formatFileSize($bytes) {
+    if ($bytes >= 1073741824) {
+        return number_format($bytes / 1073741824, 2) . ' GB';
+    } elseif ($bytes >= 1048576) {
+        return number_format($bytes / 1048576, 2) . ' MB';
+    } elseif ($bytes >= 1024) {
+        return number_format($bytes / 1024, 2) . ' KB';
+    } else {
+        return $bytes . ' bytes';
+    }
+}
+
+// Handle create backup request
+function handleCreateBackup() {
+    checkAdminSession();
+
+    $result = createBackup();
+
+    if ($result['success']) {
+        addNotification(
+            'Backup Created',
+            "Database backup created successfully: {$result['filename']}",
+            'success',
+            'normal'
+        );
+        header('Location: ?action=backup&success=Backup created successfully');
+    } else {
+        header('Location: ?action=backup&error=' . urlencode($result['error']));
+    }
+    exit;
+}
+
+// Handle download backup request
+function handleDownloadBackup() {
+    checkAdminSession();
+
+    $filename = $_GET['file'] ?? null;
+
+    if ($filename) {
+        downloadBackup(urldecode($filename));
+    } else {
+        header('Location: ?action=backup&error=No backup file specified');
+        exit;
+    }
+}
+
+// Handle restore backup request
+function handleRestoreBackup() {
+    checkAdminSession();
+
+    $filename = $_GET['file'] ?? null;
+
+    if ($filename) {
+        $result = restoreFromBackup(urldecode($filename));
+
+        if ($result['success']) {
+            header('Location: ?action=backup&success=' . urlencode($result['message']));
+        } else {
+            header('Location: ?action=backup&error=' . urlencode($result['error']));
+        }
+    } else {
+        header('Location: ?action=backup&error=No backup file specified');
+    }
+    exit;
+}
+
+// Handle delete backup request
+function handleDeleteBackup() {
+    checkAdminSession();
+
+    $filename = $_GET['file'] ?? null;
+
+    if ($filename) {
+        $result = deleteBackup(urldecode($filename));
+
+        if ($result['success']) {
+            header('Location: ?action=backup&success=' . urlencode($result['message']));
+        } else {
+            header('Location: ?action=backup&error=' . urlencode($result['error']));
+        }
+    } else {
+        header('Location: ?action=backup&error=No backup file specified');
+    }
     exit;
 }
 ?>
