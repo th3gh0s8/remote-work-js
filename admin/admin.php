@@ -4598,10 +4598,28 @@ function showLiveWatching() {
             // Initialize player
             function initPlayer() {
                 if (playlist.length > 0) {
-                    // Start from the first video (oldest) which is at index 0
+                    // Start from the first video (newest) which is at index 0
                     currentIndex = 0;
                     loadVideo(currentIndex);
                     updatePlaylistHighlight(currentIndex);
+
+                    // Automatically start playing when the page loads
+                    setTimeout(() => {
+                        if (playlist.length > 0) {
+                            videoPlayer.play().then(() => {
+                                isPlaying = true;
+                                statusIndicator.className = 'status-indicator status-playing';
+                                statusIndicator.textContent = 'Playing: ' + playlist[currentIndex].imgName;
+
+                                // Update button text to indicate it's playing
+                                playBtn.textContent = 'Resume';
+                            }).catch(e => {
+                                console.log('Autoplay prevented: ', e);
+                                statusIndicator.className = 'status-indicator status-paused';
+                                statusIndicator.textContent = 'Autoplay blocked - click Play to start';
+                            });
+                        }
+                    }, 500); // Small delay to ensure video is loaded
                 } else {
                     statusIndicator.className = 'status-indicator status-stopped';
                     statusIndicator.textContent = 'No recordings available';
