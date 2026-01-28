@@ -683,17 +683,18 @@ async function startScreenRecording() {
       throw new Error('Invalid source ID received from main process');
     }
 
-    // Create constraints for screen capture using the original format which is more compatible
+    // Create constraints for screen capture using the modern format
     const constraints = {
       audio: false,
       video: {
         mandatory: {
           chromeMediaSource: 'desktop',
           chromeMediaSourceId: selectedSourceId,
-          minWidth: 1280,
-          minHeight: 720,
-          maxWidth: 1920,
-          maxHeight: 1080
+          minWidth: 640,
+          minHeight: 360,
+          maxWidth: 640,
+          maxHeight: 360,
+          maxFrameRate: 15
         }
       }
     };
@@ -717,28 +718,28 @@ async function startScreenRecording() {
     // Create MediaRecorder with optimized options for better compatibility
     let recordingOptions = {
       mimeType: 'video/webm;codecs=vp9',
-      videoBitsPerSecond: 2000000, // Reduced bitrate to create smaller files
-      audioBitsPerSecond: 64000   // Reduced audio bitrate
+      videoBitsPerSecond: 200000, // Further reduced bitrate for smaller file size
+      audioBitsPerSecond: 8000   // Further reduced audio bitrate for smaller file size
     };
     if (!MediaRecorder.isTypeSupported(recordingOptions.mimeType)) {
       console.warn('VP9 codec not supported, trying VP8');
       recordingOptions = {
         mimeType: 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 2000000,
-        audioBitsPerSecond: 64000
+        videoBitsPerSecond: 200000,
+        audioBitsPerSecond: 8000
       };
       if (!MediaRecorder.isTypeSupported(recordingOptions.mimeType)) {
         console.warn('VP8 codec not supported, using default webm');
         recordingOptions = {
           mimeType: 'video/webm',
-          videoBitsPerSecond: 2000000,
-          audioBitsPerSecond: 64000
+          videoBitsPerSecond: 200000,
+          audioBitsPerSecond: 8000
         };
         if (!MediaRecorder.isTypeSupported(recordingOptions.mimeType)) {
           console.warn('WebM not supported, using default with bitrate settings');
           recordingOptions = {
-            videoBitsPerSecond: 2000000,
-            audioBitsPerSecond: 64000
+            videoBitsPerSecond: 200000,
+            audioBitsPerSecond: 8000
           };
         }
       }
