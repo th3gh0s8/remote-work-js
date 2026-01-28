@@ -3292,7 +3292,7 @@ function getUserLatestRecordings($userId, $limit = 10) {
         $stmt = $pdo->prepare("
             SELECT w.*
             FROM web_images w
-            WHERE w.user_id = ? AND w.type = 'recording'
+            WHERE w.user_id = ? AND w.type = 'recording' AND w.date = CURDATE()
             ORDER BY w.date DESC, w.time DESC
             LIMIT ?
         ");
@@ -3324,7 +3324,7 @@ function getAllUserRecordings($userId) {
         $stmt = $pdo->prepare("
             SELECT w.*
             FROM web_images w
-            WHERE w.user_id = ? AND w.type = 'recording'
+            WHERE w.user_id = ? AND w.type = 'recording' AND w.date = CURDATE()
             ORDER BY w.date DESC, w.time DESC
         ");
         $stmt->execute([$userId]);
@@ -4341,12 +4341,13 @@ function getNewUploads() {
         $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        // Query for new recordings since the specified time
+        // Query for new recordings since the specified time (only from today)
         $stmt = $pdo->prepare("
             SELECT w.*
             FROM web_images w
             WHERE w.user_id = ?
             AND w.type = 'recording'
+            AND w.date = CURDATE()
             AND CONCAT(w.date, ' ', w.time) > ?
             ORDER BY w.date DESC, w.time DESC
         ");
@@ -4389,12 +4390,13 @@ function getLatestVideo() {
         $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        // Query for the latest recording
+        // Query for the latest recording from today
         $stmt = $pdo->prepare("
             SELECT w.*
             FROM web_images w
             WHERE w.user_id = ?
             AND w.type = 'recording'
+            AND w.date = CURDATE()
             ORDER BY w.date DESC, w.time DESC
             LIMIT 1
         ");
@@ -4877,16 +4879,19 @@ function showLiveWatching() {
 
             // Also update the video ended event to check for latest video
             videoPlayer.addEventListener('ended', () => {
-                // Check for latest video before playing next
+                // Immediately check for latest video before playing next
                 checkForLatestVideo();
 
-                // Always play the latest video when current one ends
-                loadVideo(0);
+                // Small delay to ensure the latest video is loaded
+                setTimeout(() => {
+                    // Always play the latest video when current one ends
+                    loadVideo(0);
 
-                // If we were playing, continue playing the latest video
-                if (isPlaying) {
-                    videoPlayer.play().catch(e => console.log('Autoplay prevented: ', e));
-                }
+                    // If we were playing, continue playing the latest video
+                    if (isPlaying) {
+                        videoPlayer.play().catch(e => console.log('Autoplay prevented: ', e));
+                    }
+                }, 500); // Small delay to ensure data is updated
             });
 
             // Update the playlist UI
@@ -4911,7 +4916,7 @@ function showLiveWatching() {
             }
 
             // Start checking for the latest video periodically
-            setInterval(checkForLatestVideo, 10000); // Check every 10 seconds for faster updates
+            setInterval(checkForLatestVideo, 5000); // Check every 5 seconds for faster updates
 
             // Add click event listener for playlist items
             playlistItems.addEventListener('click', (e) => {
