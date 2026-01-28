@@ -93,6 +93,9 @@ switch ($action) {
     case 'watch_combined':
         showWatchCombined();
         break;
+    case 'serve_combined_video':
+        serveCombinedVideo();
+        break;
     default:
         // Default to dashboard if action is not recognized
         showDashboard();
@@ -4600,6 +4603,12 @@ function showCombineRecordings() {
         </div>
 
         <div class="form-container">
+            <?php if (isset($_GET['error'])): ?>
+                <div style="background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
+                    <?= htmlspecialchars($_GET['error']) ?>
+                </div>
+            <?php endif; ?>
+
             <form method="post" action="?action=generate_combined_video&user_id=<?= $userId ?>">
                 <div class="form-group">
                     <label for="start_date">Start Date:</label>
@@ -4607,8 +4616,22 @@ function showCombineRecordings() {
                 </div>
 
                 <div class="form-group">
-                    <label for="start_time">Start Time:</label>
-                    <input type="time" id="start_time" name="start_time" required>
+                    <label for="start_hour">Start Time:</label>
+                    <div style="display: flex; gap: 10px;">
+                        <select id="start_hour" name="start_hour" required>
+                            <option value="">Hour</option>
+                            <?php for ($i = 0; $i < 24; $i++): ?>
+                                <option value="<?= sprintf('%02d', $i) ?>"><?= sprintf('%02d', $i) ?></option>
+                            <?php endfor; ?>
+                        </select>
+                        <span style="align-self: center;">:</span>
+                        <select id="start_minute" name="start_minute" required>
+                            <option value="">Minute</option>
+                            <?php for ($i = 0; $i < 60; $i += 5): ?>
+                                <option value="<?= sprintf('%02d', $i) ?>"><?= sprintf('%02d', $i) ?></option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -4617,8 +4640,22 @@ function showCombineRecordings() {
                 </div>
 
                 <div class="form-group">
-                    <label for="end_time">End Time:</label>
-                    <input type="time" id="end_time" name="end_time" required>
+                    <label for="end_hour">End Time:</label>
+                    <div style="display: flex; gap: 10px;">
+                        <select id="end_hour" name="end_hour" required>
+                            <option value="">Hour</option>
+                            <?php for ($i = 0; $i < 24; $i++): ?>
+                                <option value="<?= sprintf('%02d', $i) ?>"><?= sprintf('%02d', $i) ?></option>
+                            <?php endfor; ?>
+                        </select>
+                        <span style="align-self: center;">:</span>
+                        <select id="end_minute" name="end_minute" required>
+                            <option value="">Minute</option>
+                            <?php for ($i = 0; $i < 60; $i += 5): ?>
+                                <option value="<?= sprintf('%02d', $i) ?>"><?= sprintf('%02d', $i) ?></option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -4647,13 +4684,19 @@ function generateCombinedVideo() {
 
     $userId = $_GET['user_id'] ?? null;
     $startDate = $_POST['start_date'] ?? null;
-    $startTime = $_POST['start_time'] ?? null;
+    $startHour = $_POST['start_hour'] ?? null;
+    $startMinute = $_POST['start_minute'] ?? null;
     $endDate = $_POST['end_date'] ?? null;
-    $endTime = $_POST['end_time'] ?? null;
+    $endHour = $_POST['end_hour'] ?? null;
+    $endMinute = $_POST['end_minute'] ?? null;
     $format = $_POST['video_format'] ?? 'webm';
 
-    if (!$userId || !$startDate || !$startTime || !$endDate || !$endTime) {
-        header('Location: ?action=dashboard&error=Missing required parameters');
+    // Combine hour and minute into time format
+    $startTime = ($startHour && $startMinute) ? $startHour . ':' . $startMinute . ':00' : null;
+    $endTime = ($endHour && $endMinute) ? $endHour . ':' . $endMinute . ':00' : null;
+
+    if (!$userId || !$startDate || !$startHour || !$startMinute || !$endDate || !$endHour || !$endMinute) {
+        header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=Missing required parameters');
         exit;
     }
 
@@ -4665,6 +4708,19 @@ function generateCombinedVideo() {
         header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=Start time must be before end time');
         exit;
     }
+
+    // Optionally, you can remove the future date restriction if you want to allow future dates
+    // Or you can keep it but only check if start is after end, not if they're in the future
+    $now = new DateTime();
+    $start = new DateTime($startDateTime);
+    $end = new DateTime($endDateTime);
+
+    // Only check if end date is before start date, not if they're in the future
+    // (Commenting out the future date restriction)
+    // if ($start > $now || $end > $now) {
+    //     header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=Cannot select future dates');
+    //     exit;
+    // }
 
     // Database connection
     $host = 'localhost';
@@ -4686,34 +4742,49 @@ function generateCombinedVideo() {
             exit;
         }
 
-        // Get recordings in the specified date/time range
+        // Get recordings in the specified date/time range using a simpler approach
         $stmt = $pdo->prepare("
             SELECT w.*
             FROM web_images w
             WHERE w.user_id = ?
             AND w.type = 'recording'
-            AND (
-                (w.date = ? AND w.time >= ?) OR
-                (w.date > ? AND w.date < ?) OR
-                (w.date = ? AND w.time <= ?)
-            )
+            AND CONCAT(w.date, ' ', w.time) >= ?
+            AND CONCAT(w.date, ' ', w.time) <= ?
             ORDER BY w.date ASC, w.time ASC
         ");
         $stmt->execute([
             $userId,
-            $startDate, $startTime,
-            $startDate, $endDate,
-            $endDate, $endTime
+            $startDateTime,
+            $endDateTime
         ]);
+
         $recordings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // If no results, run a debug query to see what's available
         if (empty($recordings)) {
-            header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=No recordings found in the specified time range');
-            exit;
+            $debugStmt = $pdo->prepare("
+                SELECT w.*
+                FROM web_images w
+                WHERE w.user_id = ?
+                AND w.type = 'recording'
+                ORDER BY w.date DESC, w.time DESC
+                LIMIT 10
+            ");
+            $debugStmt->execute([$userId]);
+            $debugResults = $debugStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            error_log("Debug - Available recordings for user " . $userId . ": " . count($debugResults));
+            foreach ($debugResults as $rec) {
+                error_log("Debug - Recording: " . $rec['date'] . " " . $rec['time'] . " - " . $rec['imgName']);
+            }
+
+            error_log("Debug - Searching for: " . $startDate . " " . $startTime . " to " . $endDate . " " . $endTime);
         }
 
-        // In a real implementation, we would use FFmpeg to combine the videos
-        // For now, we'll simulate the process and provide a mock combined video
+        if (empty($recordings)) {
+            header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=No valid recordings found in the specified time range');
+            exit;
+        }
 
         // Create a temporary directory for the combined video
         $tempDir = __DIR__ . '/../temp/';
@@ -4726,13 +4797,124 @@ function generateCombinedVideo() {
         $combinedFileName = "combined_" . $user['RepID'] . "_" . $timestamp . "." . $format;
         $combinedFilePath = $tempDir . $combinedFileName;
 
-        // In a real implementation, we would use FFmpeg here to combine the videos
-        // For this demo, we'll create a placeholder file
-        $placeholderContent = "Combined video for user " . $user['Name'] . " from " . $startDateTime . " to " . $endDateTime . "\n";
-        $placeholderContent .= "Contains " . count($recordings) . " individual recordings.\n";
-        file_put_contents($combinedFilePath, $placeholderContent);
+        // Create a temporary directory for input files
+        $inputDir = $tempDir . 'inputs_' . uniqid() . '/';
+        mkdir($inputDir, 0755, true);
 
-        // For demonstration purposes, we'll redirect to a page that simulates the combined video
+        // Array to hold paths of video files to combine
+        $inputFiles = [];
+
+        // Process each recording in the range
+        foreach ($recordings as $recording) {
+            // First try the exact filename
+            $sourcePath = __DIR__ . '/../uploads/' . $recording['imgName'];
+
+            // If the exact file doesn't exist, search for files ending with the requested name
+            if (!file_exists($sourcePath)) {
+                $uploadsDir = __DIR__ . '/../uploads/';
+                if (is_dir($uploadsDir)) {
+                    $files = scandir($uploadsDir);
+                    foreach ($files as $file) {
+                        if ($file !== '.' && $file !== '..') {
+                            // Check if the file ends with the requested filename
+                            if (preg_match('/' . preg_quote($recording['imgName'], '/') . '$/', $file)) {
+                                $sourcePath = $uploadsDir . $file;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Verify the source file exists
+            if (file_exists($sourcePath)) {
+                // Copy the file to the input directory with a sequential name
+                $inputFile = $inputDir . 'input_' . sprintf('%03d', count($inputFiles)) . '.tmp';
+                copy($sourcePath, $inputFile);
+                $inputFiles[] = $inputFile;
+            } else {
+                error_log("Source file not found: " . $sourcePath);
+            }
+        }
+
+        if (empty($inputFiles)) {
+            // No valid input files found
+            header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=No valid recordings found in the specified time range');
+            exit;
+        }
+
+        // Create a text file listing all input files for FFmpeg
+        $listFile = $inputDir . 'file_list.txt';
+        $listContent = '';
+        foreach ($inputFiles as $file) {
+            // Escape special characters in file path for FFmpeg
+            $escapedFile = str_replace("'", "'\\''", $file);
+            $listContent .= "file '" . $escapedFile . "'\n";
+        }
+        file_put_contents($listFile, $listContent);
+
+        // Build the FFmpeg command to concatenate videos
+        // Using absolute path for FFmpeg if it's in a specific location
+        $ffmpegCmd = 'ffmpeg -y -f concat -safe 0 -i "' . $listFile . '" -c copy -avoid_negative_ts make_zero "' . $combinedFilePath . '" 2>&1';
+
+        // Execute the FFmpeg command
+        $output = [];
+        $returnCode = 0;
+        exec($ffmpegCmd, $output, $returnCode);
+
+        // Log the command and output for debugging
+        error_log("FFmpeg command: " . $ffmpegCmd);
+        error_log("FFmpeg return code: " . $returnCode);
+        error_log("FFmpeg output: " . implode("\n", $output));
+
+        // If the first method fails, try with a different approach
+        if ($returnCode !== 0) {
+            error_log("FFmpeg concat failed, trying alternative method");
+
+            // Alternative method: use a temporary file list with absolute paths
+            $altListFile = $inputDir . 'alt_file_list.txt';
+            $altListContent = '';
+            foreach ($inputFiles as $file) {
+                $altListContent .= "file '" . realpath($file) . "'\n";
+            }
+            file_put_contents($altListFile, $altListContent);
+
+            $altFfmpegCmd = 'ffmpeg -y -f concat -safe 0 -i "' . $altListFile . '" -c:v libx264 -c:a aac -strict experimental "' . $combinedFilePath . '" 2>&1';
+            exec($altFfmpegCmd, $output, $returnCode);
+
+            error_log("Alternative FFmpeg command: " . $altFfmpegCmd);
+            error_log("Alternative FFmpeg return code: " . $returnCode);
+            error_log("Alternative FFmpeg output: " . implode("\n", $output));
+
+            // Clean up alternative list file
+            if (file_exists($altListFile)) {
+                unlink($altListFile);
+            }
+        }
+
+        // Clean up temporary files
+        foreach ($inputFiles as $file) {
+            if (file_exists($file)) {
+                unlink($file);
+            }
+        }
+        if (file_exists($listFile)) {
+            unlink($listFile);
+        }
+        if (is_dir($inputDir)) {
+            rmdir($inputDir);
+        }
+
+        if ($returnCode !== 0) {
+            // FFmpeg failed
+            if (file_exists($combinedFilePath)) {
+                unlink($combinedFilePath);
+            }
+            header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=Video combination failed. FFmpeg error occurred.');
+            exit;
+        }
+
+        // Redirect to the combined video player
         header('Location: ?action=watch_combined&file=' . urlencode($combinedFileName) . '&user_id=' . $userId . '&start=' . urlencode($startDateTime) . '&end=' . urlencode($endDateTime));
         exit;
 
@@ -4942,7 +5124,7 @@ function showWatchCombined() {
             </div>
 
             <video id="videoPlayer" class="video-player" controls>
-                <source src="" type="video/webm">
+                <source src="?action=serve_combined_video&file=<?= urlencode($fileName) ?>" type="video/<?= pathinfo($fileName, PATHINFO_EXTENSION) ?>">
                 Your browser does not support the video tag.
             </video>
 
@@ -5002,6 +5184,69 @@ function showWatchCombined() {
     </body>
     </html>
     <?php
+}
+
+// Serve combined video file
+function serveCombinedVideo() {
+    checkAdminSession();
+
+    $fileName = $_GET['file'] ?? null;
+
+    if (!$fileName) {
+        http_response_code(400);
+        echo "No file specified.";
+        exit;
+    }
+
+    // Sanitize filename to prevent directory traversal
+    $fileName = basename($fileName);
+    $filePath = __DIR__ . '/../temp/' . $fileName;
+
+    // Verify the file exists and is in the temp directory
+    if (!file_exists($filePath) || strpos(realpath($filePath), realpath(__DIR__ . '/../temp/')) !== 0) {
+        http_response_code(404);
+        echo "File not found.";
+        exit;
+    }
+
+    // Determine the content type based on file extension
+    $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+
+    switch ($extension) {
+        case 'webm':
+            $contentType = 'video/webm';
+            break;
+        case 'mp4':
+            $contentType = 'video/mp4';
+            break;
+        case 'mov':
+            $contentType = 'video/quicktime';
+            break;
+        case 'avi':
+            $contentType = 'video/x-msvideo';
+            break;
+        case 'wmv':
+            $contentType = 'video/x-ms-wmv';
+            break;
+        case 'flv':
+            $contentType = 'video/x-flv';
+            break;
+        case 'mkv':
+            $contentType = 'video/x-matroska';
+            break;
+        default:
+            $contentType = 'application/octet-stream';
+            break;
+    }
+
+    // Set headers for video streaming
+    header('Content-Type: ' . $contentType);
+    header('Content-Length: ' . filesize($filePath));
+    header('Accept-Ranges: none');
+
+    // Read and output the file
+    readfile($filePath);
+    exit;
 }
 
 // Show live watching page for a user
