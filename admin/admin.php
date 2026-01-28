@@ -75,6 +75,9 @@ switch ($action) {
     case 'delete_backup':
         handleDeleteBackup();
         break;
+    case 'watch_live':
+        showLiveWatching();
+        break;
     default:
         // Default to dashboard if action is not recognized
         showDashboard();
@@ -1176,6 +1179,7 @@ function showDashboard() {
                                         <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Branch ID <?= $sort_column === 'br_id' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                         <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Last Activity <?= $sort_column === 'last_activity' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                         <th>Status</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1192,6 +1196,9 @@ function showDashboard() {
                                                 <?php else: ?>
                                                     <span class="user-status-inactive">Offline</span>
                                                 <?php endif; ?>
+                                            </td>
+                                            <td class="recording-actions">
+                                                <a href="?action=watch_live&user_id=<?php echo $user['ID']; ?>" class="view-btn">Watch Live</a>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -1485,6 +1492,7 @@ function showDashboard() {
                                                 <?php endif; ?>
                                             </td>
                                             <td class="recording-actions">
+                                                <a href="?action=watch_live&user_id=<?php echo $user['ID']; ?>" class="view-btn">Watch Live</a>
                                                 <button class="edit-btn" onclick="editUser(<?= $user['ID'] ?>)">Edit</button>
                                                 <button class="delete-btn" onclick="deleteUser(<?= $user['ID'] ?>, '<?= addslashes(htmlspecialchars($user['Name'])) ?>')">Delete</button>
                                             </td>
@@ -3258,6 +3266,69 @@ function getUnreadNotificationsCount() {
     }
 }
 
+// Get latest recordings for a specific user
+function getUserLatestRecordings($userId, $limit = 10) {
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        error_log("Database connection failed: " . $e->getMessage());
+        return [];
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT w.*
+            FROM web_images w
+            WHERE w.user_id = ? AND w.type = 'recording'
+            ORDER BY w.date DESC, w.time DESC
+            LIMIT ?
+        ");
+        $stmt->execute([$userId, $limit]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch(PDOException $e) {
+        error_log("Error getting user recordings: " . $e->getMessage());
+        return [];
+    }
+}
+
+// Get all user recordings for continuous playback
+function getAllUserRecordings($userId) {
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root'; // Default MySQL user
+    $password = '';     // Default MySQL password (empty)
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    } catch(PDOException $e) {
+        error_log("Database connection failed: " . $e->getMessage());
+        return [];
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT w.*
+            FROM web_images w
+            WHERE w.user_id = ? AND w.type = 'recording'
+            ORDER BY w.date DESC, w.time DESC
+        ");
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch(PDOException $e) {
+        error_log("Error getting all user recordings: " . $e->getMessage());
+        return [];
+    }
+}
+
 // Create notifications table if it doesn't exist
 function createNotificationsTable() {
     // Database connection
@@ -4239,5 +4310,446 @@ function handleDeleteBackup() {
         header('Location: ?action=backup&error=No backup file specified');
     }
     exit;
+}
+
+// Show live watching page for a user
+function showLiveWatching() {
+    checkAdminSession();
+
+    $userId = $_GET['user_id'] ?? null;
+
+    if (!$userId) {
+        header('Location: ?action=dashboard&error=No user specified');
+        exit;
+    }
+
+    // Get user info
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root';
+    $password = '';
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            header('Location: ?action=dashboard&error=User not found');
+            exit;
+        }
+
+        // Get all recordings for this user
+        $recordings = getAllUserRecordings($userId);
+    } catch(PDOException $e) {
+        header('Location: ?action=dashboard&error=Database error occurred');
+        exit;
+    }
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Live Watching - <?= htmlspecialchars($user['Name']) ?> | Admin Dashboard</title>
+        <style>
+            :root {
+                --primary-color: #4361ee;
+                --secondary-color: #3f37c9;
+                --success-color: #4cc9f0;
+                --danger-color: #f72585;
+                --warning-color: #f8961e;
+                --info-color: #4895ef;
+                --light-bg: #f8f9fa;
+                --dark-bg: #212529;
+                --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                --border-radius: 8px;
+                --transition: all 0.3s ease;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #f5f7fb;
+                color: #333;
+                line-height: 1.6;
+            }
+
+            .header {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 15px 30px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-radius: var(--border-radius);
+                margin-bottom: 20px;
+            }
+
+            .header h1 {
+                margin: 0;
+                font-size: 1.5em;
+                font-weight: 600;
+            }
+
+            .back-btn {
+                background: linear-gradient(to right, var(--info-color), var(--primary-color));
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 30px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                font-weight: 500;
+                transition: var(--transition);
+            }
+
+            .back-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 10px rgba(67, 97, 238, 0.4);
+            }
+
+            .player-container {
+                background: white;
+                padding: 20px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+                margin-bottom: 20px;
+            }
+
+            .video-player {
+                width: 100%;
+                max-width: 800px;
+                margin: 0 auto;
+                display: block;
+            }
+
+            .video-info {
+                margin-top: 15px;
+                padding: 10px;
+                background-color: #f8f9fa;
+                border-radius: 5px;
+                text-align: center;
+            }
+
+            .controls {
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+                margin-top: 15px;
+            }
+
+            .control-btn {
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-weight: 500;
+                transition: var(--transition);
+            }
+
+            .play-btn {
+                background: linear-gradient(to right, var(--success-color), #4895ef);
+                color: white;
+            }
+
+            .pause-btn {
+                background: linear-gradient(to right, var(--warning-color), #f8961e);
+                color: white;
+            }
+
+            .stop-btn {
+                background: linear-gradient(to right, var(--danger-color), #e63946);
+                color: white;
+            }
+
+            .playlist {
+                background: white;
+                padding: 20px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+                margin-top: 20px;
+            }
+
+            .playlist h3 {
+                margin-top: 0;
+                color: var(--primary-color);
+                border-bottom: 2px solid #f0f0f0;
+                padding-bottom: 10px;
+            }
+
+            .playlist-items {
+                max-height: 300px;
+                overflow-y: auto;
+            }
+
+            .playlist-item {
+                padding: 10px;
+                border-bottom: 1px solid #eee;
+                cursor: pointer;
+                transition: background-color 0.2s;
+            }
+
+            .playlist-item:hover {
+                background-color: #f0f5ff;
+            }
+
+            .playlist-item.active {
+                background-color: #e6f0ff;
+                font-weight: bold;
+            }
+
+            .status-indicator {
+                text-align: center;
+                padding: 10px;
+                margin: 10px 0;
+                border-radius: 5px;
+            }
+
+            .status-playing {
+                background-color: #d4edda;
+                color: #155724;
+            }
+
+            .status-paused {
+                background-color: #fff3cd;
+                color: #856404;
+            }
+
+            .status-stopped {
+                background-color: #f8d7da;
+                color: #721c24;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Live Watching - <?= htmlspecialchars($user['Name']) ?> (<?= htmlspecialchars($user['RepID']) ?>)</h1>
+            <a href="?action=dashboard" class="back-btn">Back to Dashboard</a>
+        </div>
+
+        <div class="player-container">
+            <div id="statusIndicator" class="status-indicator status-stopped">
+                Player Stopped - Click Play to start
+            </div>
+
+            <video id="videoPlayer" class="video-player" controls>
+                <source src="" type="video/webm">
+                Your browser does not support the video tag.
+            </video>
+
+            <div class="video-info">
+                <div id="currentVideoInfo">No video selected</div>
+                <div id="currentTime">--:-- / --:--</div>
+            </div>
+
+            <div class="controls">
+                <button id="playBtn" class="control-btn play-btn">Play</button>
+                <button id="pauseBtn" class="control-btn pause-btn">Pause</button>
+                <button id="stopBtn" class="control-btn stop-btn">Stop</button>
+            </div>
+        </div>
+
+        <div class="playlist">
+            <h3>Recording Playlist</h3>
+            <div id="playlistItems" class="playlist-items">
+                <?php if (count($recordings) > 0): ?>
+                    <?php foreach ($recordings as $index => $recording): ?>
+                        <div class="playlist-item" data-index="<?= $index ?>" data-filename="<?= htmlspecialchars($recording['imgName']) ?>">
+                            <strong><?= htmlspecialchars($recording['imgName']) ?></strong><br>
+                            <small>Date: <?= $recording['date'] ?> | Time: <?= $recording['time'] ?></small>
+                        </div>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <div style="text-align: center; padding: 20px; color: #6c757d;">
+                        No recordings found for this user
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <script>
+            // Global variables
+            let playlist = <?php echo json_encode($recordings); ?>;
+            let currentIndex = 0;
+            let isPlaying = false;
+
+            // DOM elements
+            const videoPlayer = document.getElementById('videoPlayer');
+            const playBtn = document.getElementById('playBtn');
+            const pauseBtn = document.getElementById('pauseBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const statusIndicator = document.getElementById('statusIndicator');
+            const currentVideoInfo = document.getElementById('currentVideoInfo');
+            const currentTimeDisplay = document.getElementById('currentTime');
+            const playlistItems = document.getElementById('playlistItems');
+
+            // Initialize player
+            function initPlayer() {
+                if (playlist.length > 0) {
+                    loadVideo(currentIndex);
+                    updatePlaylistHighlight(currentIndex);
+                } else {
+                    statusIndicator.className = 'status-indicator status-stopped';
+                    statusIndicator.textContent = 'No recordings available';
+                    currentVideoInfo.textContent = 'No recordings available';
+                }
+            }
+
+            // Load video by index
+            function loadVideo(index) {
+                if (index < 0 || index >= playlist.length) {
+                    console.log('Invalid index: ' + index);
+                    return;
+                }
+
+                currentIndex = index;
+                const recording = playlist[index];
+
+                // Update video source
+                const videoSrc = '?action=view&file=' + encodeURIComponent(recording.imgName);
+                videoPlayer.src = videoSrc;
+
+                // Update info display
+                currentVideoInfo.innerHTML = '<strong>' + recording.imgName + '</strong><br>' +
+                                           'Date: ' + recording.date + ' | Time: ' + recording.time;
+
+                // Update playlist highlight
+                updatePlaylistHighlight(index);
+
+                // Update status
+                statusIndicator.className = 'status-indicator status-paused';
+                statusIndicator.textContent = 'Video loaded - Paused';
+
+                // Reset play button text to 'Play' when loading a new video
+                playBtn.textContent = 'Play';
+            }
+
+            // Update playlist highlighting
+            function updatePlaylistHighlight(index) {
+                // Remove active class from all items
+                document.querySelectorAll('.playlist-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+
+                // Add active class to current item
+                const currentItem = document.querySelector(`.playlist-item[data-index="${index}"]`);
+                if (currentItem) {
+                    currentItem.classList.add('active');
+                }
+            }
+
+            // Play next video in playlist
+            function playNextVideo() {
+                // Move to next video or loop back to beginning
+                currentIndex = (currentIndex + 1) % playlist.length;
+                loadVideo(currentIndex);
+
+                // Automatically play the next video if currently playing
+                if (isPlaying) {
+                    // Wait a moment for the video to load before playing
+                    setTimeout(() => {
+                        videoPlayer.play().catch(e => console.log('Autoplay prevented: ', e));
+                    }, 100);
+                }
+            }
+
+            // Event listeners
+            playBtn.addEventListener('click', () => {
+                if (playlist.length === 0) return;
+
+                videoPlayer.play()
+                    .then(() => {
+                        isPlaying = true;
+                        statusIndicator.className = 'status-indicator status-playing';
+                        statusIndicator.textContent = 'Playing: ' + playlist[currentIndex].imgName;
+
+                        // Update button text to indicate it's playing
+                        playBtn.textContent = 'Resume';
+                    })
+                    .catch(e => {
+                        console.log('Play failed: ', e);
+                        statusIndicator.className = 'status-indicator status-paused';
+                        statusIndicator.textContent = 'Playback failed - click Play again';
+                    });
+            });
+
+            pauseBtn.addEventListener('click', () => {
+                videoPlayer.pause();
+                isPlaying = false;
+                statusIndicator.className = 'status-indicator status-paused';
+                statusIndicator.textContent = 'Paused: ' + playlist[currentIndex].imgName;
+
+                // Update play button text to indicate it can resume
+                playBtn.textContent = 'Resume';
+            });
+
+            stopBtn.addEventListener('click', () => {
+                videoPlayer.pause();
+                videoPlayer.currentTime = 0;
+                isPlaying = false;
+                statusIndicator.className = 'status-indicator status-stopped';
+                statusIndicator.textContent = 'Stopped - Click Play to resume';
+
+                // Update play button text to indicate it can start
+                playBtn.textContent = 'Play';
+            });
+
+            // Video ended event - automatically play next video
+            videoPlayer.addEventListener('ended', () => {
+                // Always play the next video in sequence, with seamless looping
+                playNextVideo();
+            });
+
+            // Time update event - update time display
+            videoPlayer.addEventListener('timeupdate', () => {
+                const current = Math.floor(videoPlayer.currentTime);
+                const duration = Math.floor(videoPlayer.duration) || 0;
+
+                const currentFormatted = new Date(current * 1000).toISOString().substr(14, 5);
+                const durationFormatted = new Date(duration * 1000).toISOString().substr(14, 5);
+
+                currentTimeDisplay.textContent = `${currentFormatted} / ${durationFormatted}`;
+            });
+
+            // Click on playlist item to play that video
+            playlistItems.addEventListener('click', (e) => {
+                const playlistItem = e.target.closest('.playlist-item');
+                if (playlistItem) {
+                    const index = parseInt(playlistItem.getAttribute('data-index'));
+                    if (!isNaN(index)) {
+                        loadVideo(index);
+
+                        // Auto-play if currently playing
+                        if (isPlaying) {
+                            videoPlayer.play().then(() => {
+                                statusIndicator.className = 'status-indicator status-playing';
+                                statusIndicator.textContent = 'Playing: ' + playlist[currentIndex].imgName;
+
+                                // Update button text to indicate it's playing
+                                playBtn.textContent = 'Resume';
+                            }).catch(e => console.log('Autoplay prevented: ', e));
+                        }
+                    }
+                }
+            });
+
+            // Initialize the player when page loads
+            window.addEventListener('DOMContentLoaded', initPlayer);
+        </script>
+    </body>
+    </html>
+    <?php
 }
 ?>
