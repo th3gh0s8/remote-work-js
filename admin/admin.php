@@ -78,6 +78,12 @@ switch ($action) {
     case 'watch_live':
         showLiveWatching();
         break;
+    case 'get_new_uploads':
+        getNewUploads();
+        break;
+    case 'get_latest_video':
+        getLatestVideo();
+        break;
     default:
         // Default to dashboard if action is not recognized
         showDashboard();
@@ -3286,8 +3292,8 @@ function getUserLatestRecordings($userId, $limit = 10) {
         $stmt = $pdo->prepare("
             SELECT w.*
             FROM web_images w
-            WHERE w.user_id = ? AND w.type = 'recording'
-            ORDER BY w.date DESC, w.time ASC
+            WHERE w.user_id = ? AND w.type = 'recording' AND w.date = CURDATE()
+            ORDER BY w.date DESC, w.time DESC
             LIMIT ?
         ");
         $stmt->execute([$userId, $limit]);
@@ -3318,8 +3324,8 @@ function getAllUserRecordings($userId) {
         $stmt = $pdo->prepare("
             SELECT w.*
             FROM web_images w
-            WHERE w.user_id = ? AND w.type = 'recording'
-            ORDER BY w.date DESC, w.time ASC
+            WHERE w.user_id = ? AND w.type = 'recording' AND w.date = CURDATE()
+            ORDER BY w.date DESC, w.time DESC
         ");
         $stmt->execute([$userId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -4312,6 +4318,104 @@ function handleDeleteBackup() {
     exit;
 }
 
+// Get new uploads for a user since a specific time
+function getNewUploads() {
+    checkAdminSession();
+
+    $userId = $_GET['user_id'] ?? null;
+    $sinceTime = $_GET['since'] ?? null;
+
+    if (!$userId || !$sinceTime) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'error' => 'Missing user_id or since parameter']);
+        exit;
+    }
+
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root';
+    $password = '';
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Query for new recordings since the specified time (only from today)
+        $stmt = $pdo->prepare("
+            SELECT w.*
+            FROM web_images w
+            WHERE w.user_id = ?
+            AND w.type = 'recording'
+            AND w.date = CURDATE()
+            AND CONCAT(w.date, ' ', w.time) > ?
+            ORDER BY w.date DESC, w.time DESC
+        ");
+
+        $stmt->execute([$userId, $sinceTime]);
+        $newRecordings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => true,
+            'new_uploads' => $newRecordings,
+            'count' => count($newRecordings)
+        ]);
+    } catch(PDOException $e) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// Get the latest video for a user
+function getLatestVideo() {
+    checkAdminSession();
+
+    $userId = $_GET['user_id'] ?? null;
+
+    if (!$userId) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'error' => 'Missing user_id parameter']);
+        exit;
+    }
+
+    // Database connection
+    $host = 'localhost';
+    $dbname = 'remote-xwork';
+    $username = 'root';
+    $password = '';
+
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // Query for the latest recording from today
+        $stmt = $pdo->prepare("
+            SELECT w.*
+            FROM web_images w
+            WHERE w.user_id = ?
+            AND w.type = 'recording'
+            AND w.date = CURDATE()
+            ORDER BY w.date DESC, w.time DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$userId]);
+        $latestVideo = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => true,
+            'latest_video' => $latestVideo,
+            'has_video' => $latestVideo !== false
+        ]);
+    } catch(PDOException $e) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // Show live watching page for a user
 function showLiveWatching() {
     checkAdminSession();
@@ -4598,10 +4702,33 @@ function showLiveWatching() {
             // Initialize player
             function initPlayer() {
                 if (playlist.length > 0) {
-                    // Start from the first video (oldest) which is at index 0
+                    // Start from the first video (newest) which is at index 0
                     currentIndex = 0;
                     loadVideo(currentIndex);
                     updatePlaylistHighlight(currentIndex);
+
+                    // Automatically start playing when the page loads
+                    setTimeout(() => {
+                        if (playlist.length > 0) {
+                            videoPlayer.play().then(() => {
+                                isPlaying = true;
+                                statusIndicator.className = 'status-indicator status-playing';
+                                statusIndicator.textContent = 'Playing: ' + playlist[currentIndex].imgName;
+
+                                // Update button text to indicate it's playing
+                                playBtn.textContent = 'Resume';
+                            }).catch(e => {
+                                console.log('Autoplay prevented: ', e);
+                                statusIndicator.className = 'status-indicator status-paused';
+                                statusIndicator.textContent = 'Autoplay blocked - click Play to start';
+                            });
+                        }
+                    }, 500); // Small delay to ensure video is loaded
+
+                    // Immediately check for the latest video to ensure we have the most recent one
+                    setTimeout(() => {
+                        checkForLatestVideo();
+                    }, 2000); // Check after 2 seconds to allow initial load
                 } else {
                     statusIndicator.className = 'status-indicator status-stopped';
                     statusIndicator.textContent = 'No recordings available';
@@ -4631,11 +4758,20 @@ function showLiveWatching() {
                 updatePlaylistHighlight(index);
 
                 // Update status
-                statusIndicator.className = 'status-indicator status-paused';
-                statusIndicator.textContent = 'Video loaded - Paused';
+                if (isPlaying) {
+                    statusIndicator.className = 'status-indicator status-playing';
+                    statusIndicator.textContent = 'Playing: ' + recording.imgName;
+                } else {
+                    statusIndicator.className = 'status-indicator status-paused';
+                    statusIndicator.textContent = 'Video loaded - Paused';
+                }
 
-                // Reset play button text to 'Play' when loading a new video
-                playBtn.textContent = 'Play';
+                // Reset play button text based on current state
+                if (isPlaying) {
+                    playBtn.textContent = 'Resume';
+                } else {
+                    playBtn.textContent = 'Play';
+                }
             }
 
             // Update playlist highlighting
@@ -4652,13 +4788,165 @@ function showLiveWatching() {
                 }
             }
 
-            // Play next video in playlist
-            function playNextVideo() {
-                // Move to next video or loop back to beginning
-                currentIndex = (currentIndex + 1) % playlist.length;
-                loadVideo(currentIndex);
+            // Check for the latest video and update if needed
+            let currentUserId = <?php echo $userId; ?>;
+            let currentLatestVideo = playlist.length > 0 ? playlist[0] : null;
+            let forceUpdateOnNextPlay = false; // Flag to force update on next play
 
-                // Automatically play the next video if currently playing
+            function checkForLatestVideo() {
+                // Make an AJAX request to get the latest video
+                fetch(`?action=get_latest_video&user_id=${currentUserId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success && data.has_video) {
+                            // Compare with the current latest video
+                            const latestVideo = data.latest_video;
+
+                            // Check if this is a new video by comparing date and time
+                            if (!currentLatestVideo ||
+                                latestVideo.date > currentLatestVideo.date ||
+                                (latestVideo.date === currentLatestVideo.date && latestVideo.time > currentLatestVideo.time)) {
+
+                                // This is a new latest video, update our reference
+                                currentLatestVideo = latestVideo;
+
+                                // Update the playlist array to put the new latest video first
+                                const existingIndex = playlist.findIndex(v => v.ID === latestVideo.ID);
+                                if (existingIndex === -1) {
+                                    // New video not in playlist, add it to the beginning
+                                    playlist.unshift(latestVideo);
+                                } else if (existingIndex !== 0) {
+                                    // Video exists but not at the beginning, move it
+                                    playlist.splice(existingIndex, 1);
+                                    playlist.unshift(latestVideo);
+                                }
+
+                                // Update the playlist UI
+                                updatePlaylistUI();
+
+                                // Set flag to force update on next play
+                                forceUpdateOnNextPlay = true;
+
+                                // Update status to notify user of new video
+                                if (isPlaying) {
+                                    statusIndicator.className = 'status-indicator status-playing';
+                                    statusIndicator.textContent = 'New video available: ' + latestVideo.imgName + ' (will play next)';
+                                } else {
+                                    // If not playing, update immediately
+                                    if (currentIndex === 0) {
+                                        loadVideo(0);
+                                        currentLatestVideo = playlist[0]; // Update reference
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.log('Error checking for latest video:', error);
+                    });
+            }
+
+            // Override the play button to check for latest video before playing
+            const originalPlayBtn = playBtn.onclick;
+            playBtn.onclick = function() {
+                // Check for latest video before playing
+                checkForLatestVideo();
+
+                // If we have a forced update, load the latest video
+                if (forceUpdateOnNextPlay) {
+                    loadVideo(0);
+                    forceUpdateOnNextPlay = false;
+                }
+
+                // Then execute the original play functionality
+                if (playlist.length === 0) return;
+
+                videoPlayer.play()
+                    .then(() => {
+                        isPlaying = true;
+                        statusIndicator.className = 'status-indicator status-playing';
+                        statusIndicator.textContent = 'Playing: ' + playlist[currentIndex].imgName;
+
+                        // Update button text to indicate it's playing
+                        playBtn.textContent = 'Resume';
+                    })
+                    .catch(e => {
+                        console.log('Play failed: ', e);
+                        statusIndicator.className = 'status-indicator status-paused';
+                        statusIndicator.textContent = 'Playback failed - click Play again';
+                    });
+            };
+
+            // Also update the video ended event to check for latest video
+            videoPlayer.addEventListener('ended', () => {
+                // Immediately check for latest video before playing next
+                checkForLatestVideo();
+
+                // Small delay to ensure the latest video is loaded
+                setTimeout(() => {
+                    // Always play the latest video when current one ends
+                    loadVideo(0);
+
+                    // If we were playing, continue playing the latest video
+                    if (isPlaying) {
+                        videoPlayer.play().catch(e => console.log('Autoplay prevented: ', e));
+                    }
+                }, 500); // Small delay to ensure data is updated
+            });
+
+            // Update the playlist UI
+            function updatePlaylistUI() {
+                const playlistContainer = document.getElementById('playlistItems');
+                playlistContainer.innerHTML = '';
+
+                playlist.forEach((recording, index) => {
+                    const playlistItem = document.createElement('div');
+                    playlistItem.className = 'playlist-item';
+                    playlistItem.setAttribute('data-index', index);
+                    playlistItem.setAttribute('data-filename', recording.imgName);
+                    playlistItem.innerHTML = `
+                        <strong>${recording.imgName}</strong><br>
+                        <small>Date: ${recording.date} | Time: ${recording.time}</small>
+                    `;
+                    playlistContainer.appendChild(playlistItem);
+                });
+
+                // Update highlight
+                updatePlaylistHighlight(currentIndex);
+            }
+
+            // Start checking for the latest video periodically
+            setInterval(checkForLatestVideo, 5000); // Check every 5 seconds for faster updates
+
+            // Add click event listener for playlist items
+            playlistItems.addEventListener('click', (e) => {
+                const playlistItem = e.target.closest('.playlist-item');
+                if (playlistItem) {
+                    const index = parseInt(playlistItem.getAttribute('data-index'));
+                    if (!isNaN(index)) {
+                        loadVideo(index);
+
+                        // Auto-play if currently playing
+                        if (isPlaying) {
+                            videoPlayer.play().then(() => {
+                                statusIndicator.className = 'status-indicator status-playing';
+                                statusIndicator.textContent = 'Playing: ' + playlist[currentIndex].imgName;
+
+                                // Update button text to indicate it's playing
+                                playBtn.textContent = 'Resume';
+                            }).catch(e => console.log('Autoplay prevented: ', e));
+                        }
+                    }
+                }
+            });
+
+            // Play the same video again (always play the latest)
+            function playNextVideo() {
+                // Always stay on the first video (which should be the latest)
+                // This ensures we keep playing the latest video
+                loadVideo(0);
+
+                // Automatically play the video if currently playing
                 if (isPlaying) {
                     // Wait a moment for the video to load before playing
                     setTimeout(() => {
