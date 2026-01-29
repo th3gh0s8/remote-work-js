@@ -1,3 +1,4 @@
+require('dotenv').config();
 const mysql = require("mysql2/promise");
 const fs = require("fs");
 const path = require("path");
@@ -9,20 +10,53 @@ class DatabaseConnection {
 
   async connect() {
     try {
-      // Create connection to MySQL database
+      // Create connection to MySQL database using environment variables
       this.connection = await mysql.createConnection({
-        host: "206.72.199.6",
-        user: "stcloudb_104u", // Default MySQL user
-        password: "104-2019-08-10", // Default MySQL password (empty)
-        database: "stcloudb_104",
-        port: 3306,
+        host: process.env.DB_HOST || "localhost",
+        user: process.env.DB_USER || "root",
+        password: process.env.DB_PASSWORD || "",
+        database: process.env.DB_NAME || "xploree",
+        port: parseInt(process.env.DB_PORT) || 3306,
+        ssl: process.env.DB_SSL === 'true' ? {} : false, // Enable SSL if specified in env
+        connectTimeout: 60000, // 60 seconds
+        acquireTimeout: 60000,
+        timeout: 60000,
+        reconnect: true,
+        // Add error handling for connection issues
+        multipleStatements: false, // Prevent SQL injection via multiple statements
       });
 
       console.log("Connected to MySQL database");
       return true;
     } catch (error) {
       console.error("Database connection failed:", error);
+      // In production, log to a file or external service instead of console
+      if (process.env.NODE_ENV === 'production') {
+        this.logErrorToFile(error);
+      }
       return false;
+    }
+  }
+
+  // Helper method to log errors to file in production
+  logErrorToFile(error) {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+
+      const logDir = path.join(os.homedir(), '.xploree', 'logs');
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
+
+      const logFile = path.join(logDir, `error-${new Date().toISOString().split('T')[0]}.log`);
+      const logEntry = `[${new Date().toISOString()}] DATABASE ERROR: ${error.message}\n${error.stack}\n\n`;
+
+      fs.appendFileSync(logFile, logEntry);
+    } catch (logError) {
+      // If we can't log the error, at least don't crash the application
+      console.error("Could not write error to log file:", logError);
     }
   }
 

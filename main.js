@@ -4,6 +4,42 @@ const si = require('systeminformation');
 const DatabaseConnection = require('./db_connection');
 const SessionManager = require('./session_manager');
 
+// Production error handling
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  if (process.env.NODE_ENV === 'production') {
+    logErrorToFile(error);
+  }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  if (process.env.NODE_ENV === 'production') {
+    logErrorToFile(reason);
+  }
+});
+
+// Helper function to log errors to file in production
+function logErrorToFile(error) {
+  try {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+
+    const logDir = path.join(os.homedir(), '.xploree', 'logs');
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+
+    const logFile = path.join(logDir, `error-${new Date().toISOString().split('T')[0]}.log`);
+    const logEntry = `[${new Date().toISOString()}] UNHANDLED ERROR: ${error.message || error}\n${error.stack || ''}\n\n`;
+
+    fs.appendFileSync(logFile, logEntry);
+  } catch (logError) {
+    console.error("Could not write error to log file:", logError);
+  }
+}
+
 // Variables to track network usage
 let totalBytesDownloaded = 0;
 let totalBytesUploaded = 0;
@@ -290,8 +326,10 @@ function createWindow() {
 
   mainWindow.loadFile('index.html');
 
-  // Open DevTools for debugging screen capture
-  // mainWindow.webContents.openDevTools({ mode: 'detach' }); // Removed for production
+  // Only open DevTools in development mode
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
 
   // Release reference so the window can be garbage collected
   mainWindow.on('closed', () => {
@@ -336,8 +374,10 @@ async function createLoginWindow() {
 
   loginWindow.loadFile('login.html');
 
-  // Open DevTools for debugging
-  // loginWindow.webContents.openDevTools({ mode: 'detach' });
+  // Only open DevTools in development mode
+  if (process.env.NODE_ENV === 'development') {
+    loginWindow.webContents.openDevTools({ mode: 'detach' });
+  }
 
   loginWindow.on('show', () => {
     // Refresh tray menu to update the 'Show'/'Hide' option
@@ -933,7 +973,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     // For local development, we'll use localhost with upload script
     const isProduction = process.env.NODE_ENV === 'production';
     const serverUrl = isProduction
-      ? 'http://powersoftt.com/xRemote/upload.php'  // Replace with actual remote server
+      ? `${process.env.SERVER_URL}${process.env.UPLOAD_ENDPOINT}`  // Remote server from environment
       : 'http://localhost/upload.php';  // Local development server with PHP script in htdocs
 
     // Track upload size before sending
