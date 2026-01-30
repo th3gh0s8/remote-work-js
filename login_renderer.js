@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     loginForm.addEventListener('submit', async function(e) {
         e.preventDefault();
-        
+
         const repid = document.getElementById('repid').value.trim();
         const password = document.getElementById('password').value.trim();
 
@@ -18,8 +18,8 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             // Send login credentials to main process for authentication
             // Using RepID as username and NIC as password
-            //const result = await ipcRenderer.invoke('login', repid, password);
-            
+            const result = await ipcRenderer.invoke('login', repid, password);
+
             if (result.success) {
                 // Login successful, navigate to main application
                 console.log('Login successful:', result.user);

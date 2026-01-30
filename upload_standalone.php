@@ -9,26 +9,26 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// Create database connection
-$servername = "206.72.199.6";
+// Database configuration - using the same values from your db.php
+$servername = "localhost"; // Change to "206.72.199.6" if hosted remotely
 $username = "stcloudb_104u";
 $password = "104-2019-08-10";
 $dbname = "stcloudb_104";
 $port = 3306;
 
-// Create connection with error handling
+// Create connection
 $conn = new mysqli($servername, $username, $password, $dbname, $port);
 
 // Check connection
 if ($conn->connect_error) {
-    // Log the connection error for debugging
-    error_log("Database connection failed: " . $conn->connect_error);
+    http_response_code(500);
+    echo json_encode(['error' => 'Database connection failed: ' . $conn->connect_error]);
+    exit;
+}
 
-    // For operations that require database access, we'll handle this gracefully
-    // For file uploads, we can still save the file even if DB connection fails
-    $dbConnected = false;
-} else {
-    $dbConnected = true;
+// Set charset
+if (!$conn->set_charset("utf8mb4")) {
+    error_log("Error loading character set utf8mb4: " . $conn->error);
 }
 
 // Get the action from the request
@@ -36,30 +36,24 @@ $action = isset($_POST['action']) ? $_POST['action'] : 'upload';
 
 switch ($action) {
     case 'authenticate':
-        handleAuthentication($conn, $dbConnected);
+        handleAuthentication($conn);
         break;
     case 'log_activity':
-        handleLogActivity($conn, $dbConnected);
+        handleLogActivity($conn);
         break;
     case 'save_recording_metadata':
-        handleSaveRecordingMetadata($conn, $dbConnected);
+        handleSaveRecordingMetadata($conn);
         break;
     case 'ping':
         handlePing();
         break;
     case 'upload':
     default:
-        handleFileUpload($conn, $dbConnected);
+        handleFileUpload($conn);
         break;
 }
 
-function handleAuthentication($conn, $dbConnected) {
-    if (!$dbConnected) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Database connection unavailable for authentication']);
-        exit;
-    }
-
+function handleAuthentication($conn) {
     $repid = isset($_POST['repid']) ? $conn->real_escape_string($_POST['repid']) : '';
     $nic = isset($_POST['nic']) ? $conn->real_escape_string($_POST['nic']) : '';
 
@@ -70,7 +64,7 @@ function handleAuthentication($conn, $dbConnected) {
     }
 
     $query = "SELECT * FROM salesrep WHERE RepID = ? AND nic = ? AND Actives = 'YES'";
-
+    
     $stmt = $conn->prepare($query);
     $stmt->bind_param("ss", $repid, $nic);
     $stmt->execute();
@@ -83,11 +77,11 @@ function handleAuthentication($conn, $dbConnected) {
         http_response_code(401);
         echo json_encode(['success' => false, 'message' => 'Invalid credentials']);
     }
-
+    
     $stmt->close();
 }
 
-function handleLogActivity($conn, $dbConnected) {
+function handleLogActivity($conn) {
     $userId = isset($_POST['userId']) ? intval($_POST['userId']) : 0;
     $activityType = isset($_POST['activityType']) ? $conn->real_escape_string($_POST['activityType']) : '';
     $duration = isset($_POST['duration']) ? floatval($_POST['duration']) : 0;
@@ -98,17 +92,11 @@ function handleLogActivity($conn, $dbConnected) {
         exit;
     }
 
-    if (!$dbConnected) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Database connection unavailable for activity logging']);
-        exit;
-    }
-
     $query = "INSERT INTO user_activity (salesrepTb, activity_type, duration, rDateTime) VALUES (?, ?, ?, NOW())";
-
+    
     $stmt = $conn->prepare($query);
     $stmt->bind_param("isd", $userId, $activityType, $duration);
-
+    
     if ($stmt->execute()) {
         $insertId = $stmt->insert_id;
         echo json_encode(['success' => true, 'id' => $insertId]);
@@ -116,11 +104,11 @@ function handleLogActivity($conn, $dbConnected) {
         http_response_code(500);
         echo json_encode(['success' => false, 'message' => 'Failed to log activity: ' . $stmt->error]);
     }
-
+    
     $stmt->close();
 }
 
-function handleSaveRecordingMetadata($conn, $dbConnected) {
+function handleSaveRecordingMetadata($conn) {
     $brId = isset($_POST['brId']) ? intval($_POST['brId']) : 0;
     $imgID = isset($_POST['imgID']) ? $conn->real_escape_string($_POST['imgID']) : date('U');
     $imgName = isset($_POST['imgName']) ? $conn->real_escape_string($_POST['imgName']) : '';
@@ -137,17 +125,11 @@ function handleSaveRecordingMetadata($conn, $dbConnected) {
         exit;
     }
 
-    if (!$dbConnected) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Database connection unavailable for recording metadata']);
-        exit;
-    }
-
     $query = "INSERT INTO web_images (br_id, imgID, imgName, itmName, type, user_id, date, time, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-
+    
     $stmt = $conn->prepare($query);
     $stmt->bind_param("iisssisss", $brId, $imgID, $imgName, $itmName, $type, $userId, $date, $time, $status);
-
+    
     if ($stmt->execute()) {
         $insertId = $stmt->insert_id;
         echo json_encode(['success' => true, 'id' => $insertId]);
@@ -155,7 +137,7 @@ function handleSaveRecordingMetadata($conn, $dbConnected) {
         http_response_code(500);
         echo json_encode(['success' => false, 'message' => 'Failed to save recording metadata: ' . $stmt->error]);
     }
-
+    
     $stmt->close();
 }
 
@@ -171,7 +153,7 @@ function handleFileUpload($conn) {
     $isMultipart = strpos($_SERVER['CONTENT_TYPE'] ?? '', 'multipart/form-data') !== false;
 
     if ($isMultipart) {
-        // Handle multipart form data (traditional file upload)
+        // Handle multipart form data (Traditional file upload)
         error_log("Processing multipart form data");
 
         if (!isset($_FILES['file'])) {
@@ -277,54 +259,9 @@ function handleFileUpload($conn) {
     // Attempt to save the file
     if (file_put_contents($uploadPath, $fileBinary) !== false) {
         // File saved successfully
-
-        // Only try to insert recording metadata if database connection is available
-        if ($dbConnected) {
-            // Insert recording metadata into the database
-            $imgID = uniqid();
-            $itmName = 'Work Session Recording Segment';
-            $status = 'uploaded';
-            $date = date('Y-m-d');
-            $time = date('H:i:s');
-
-            $insertQuery = "INSERT INTO web_images (br_id, imgID, imgName, itmName, type, user_id, date, time, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            $insertStmt = $conn->prepare($insertQuery);
-            if (!$insertStmt) {
-                error_log("Failed to prepare insert statement: " . $conn->error);
-            } else {
-                $insertStmt->bind_param("iisssisss", $brId, $imgID, $filename, $itmName, $type, $userId, $date, $time, $status);
-
-                if (!$insertStmt->execute()) {
-                    error_log("Failed to insert recording metadata: " . $insertStmt->error);
-                } else {
-                    error_log("Successfully inserted recording metadata for user: $userId, filename: $filename");
-                }
-                $insertStmt->close();
-            }
-
-            // Also log this as an activity in user_activity table
-            $activityQuery = "INSERT INTO user_activity (salesrepTb, activity_type, duration, rDateTime) VALUES (?, ?, 0, NOW())";
-            $activityStmt = $conn->prepare($activityQuery);
-            if (!$activityStmt) {
-                error_log("Failed to prepare activity statement: " . $conn->error);
-            } else {
-                $activityStmt->bind_param("is", $userId, $type);
-
-                if (!$activityStmt->execute()) {
-                    error_log("Failed to log upload activity: " . $activityStmt->error);
-                } else {
-                    error_log("Successfully logged upload activity for user: $userId");
-                }
-                $activityStmt->close();
-            }
-        } else {
-            // Database is not connected, but file was saved
-            error_log("File saved successfully but database connection unavailable for metadata logging. User: $userId, Filename: $filename");
-        }
-
         $response = [
             'success' => true,
-            'fileId' => $dbConnected ? $imgID : uniqid(), // Use database ID if available, otherwise generate one
+            'fileId' => uniqid(), // Generate a unique ID for the file
             'filename' => $uniqueFilename,
             'path' => $uploadPath,
             'size' => strlen($fileBinary),
@@ -332,8 +269,7 @@ function handleFileUpload($conn) {
             'brId' => $brId,
             'type' => $type,
             'description' => $description,
-            'timestamp' => date('Y-m-d H:i:s'),
-            'dbConnected' => $dbConnected // Indicate whether DB was accessible
+            'timestamp' => date('Y-m-d H:i:s')
         ];
 
         echo json_encode($response);
@@ -349,8 +285,6 @@ function handleFileUpload($conn) {
     }
 }
 
-// Close the database connection if it was established
-if ($dbConnected) {
-    $conn->close();
-}
+// Close database connection
+$conn->close();
 ?>
