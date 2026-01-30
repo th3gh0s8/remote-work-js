@@ -33,14 +33,14 @@ Create a `.env` file in the project root with the following content:
 
 ```env
 # Database Configuration
-DB_HOST=your_database_host
-DB_USER=your_database_user
-DB_PASSWORD=your_database_password
-DB_NAME=your_database_name
+DB_HOST=206.72.199.6
+DB_USER=stcloudb_104u
+DB_PASSWORD=104-2019-08-10
+DB_NAME=stcloudb_104
 DB_PORT=3306
 
-# Server Configuration
-SERVER_URL=https://yourdomain.com/xRemote
+# Server Configuration (for powersoftt.com/xRemote)
+SERVER_URL=http://powersoftt.com/xRemote
 UPLOAD_ENDPOINT=/upload.php
 
 # Production Mode
@@ -100,6 +100,13 @@ The application connects to a central database for user authentication and data 
 2. Network security rules allow connections from client devices to the database server
 3. The database schema is properly set up with required tables (salesrep, user_activity, web_images)
 
+### Server Configuration
+The application uploads recorded sessions to your remote server at http://powersoftt.com/xRemote.
+Make sure:
+1. The server is accessible from all client devices
+2. The upload endpoint (/upload.php) is properly configured on your server
+3. The server has sufficient storage space for video uploads
+
 ### User Authentication
 - Users authenticate using their RepID (username) and NIC (password)
 - User accounts must be created in the central database before they can log in
@@ -115,7 +122,7 @@ The application connects to a central database for user authentication and data 
 ### Screen Recording
 - Automatic screen recording during work sessions
 - Segmented recording (1-minute intervals)
-- Automatic upload to central server
+- Automatic upload to http://powersoftt.com/xRemote
 - Local backup in case of upload failure
 
 ### Network Monitoring
@@ -139,16 +146,21 @@ The application connects to a central database for user authentication and data 
 #### Recording Issues
 - Ensure the application has screen recording permissions
 - Check that sufficient disk space is available for temporary recordings
-- Verify network connectivity for uploads
+- Verify network connectivity for uploads to http://powersoftt.com/xRemote
+
+#### Server Connection Issues
+- Confirm that http://powersoftt.com/xRemote is accessible from client devices
+- Verify that the upload endpoint is properly configured
+- Check firewall settings that might block the connection
 
 ### Logs
-Application logs are stored in the user's home directory under `.xploree/session.json`.
+Application logs are stored in the user's home directory under `.xploree/logs/`.
 
 ## Security Considerations
 
 - The application stores session data securely in the user's home directory
-- Network communications should be secured with SSL/TLS
-- Database connections should use encrypted protocols when possible
+- Network communications with http://powersoftt.com/xRemote should be monitored
+- Database connections use encrypted protocols
 - Screen recordings contain sensitive information - ensure proper access controls
 
 ## Support
