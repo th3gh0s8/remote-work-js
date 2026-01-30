@@ -284,7 +284,7 @@ function handleFileUpload($conn) {
         // File saved successfully
 
         // Insert recording metadata into the database
-        $imgID = uniqid();
+        $imgID = crc32(uniqid()); // Use CRC32 to convert uniqid() to integer
         $itmName = 'Work Session Recording Segment';
         $status = 'uploaded';
         $date = date('Y-m-d');
