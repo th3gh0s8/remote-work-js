@@ -1,35 +1,42 @@
 <?php
-// Diagnostic version to help troubleshoot authentication
+// Set content type to JSON
 header('Content-Type: application/json');
 
 // Enable error reporting
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// Database configuration
-$servername = "localhost"; // Change if your database is on different server
+// Database configuration - using localhost since database is on the same server
+$servername = "localhost"; // Database is on the same server as the PHP script
 $username = "stcloudb_104u";
 $password = "104-2019-08-10";
 $dbname = "stcloudb_104";
 $port = 3306;
 
 // Create connection
-$conn = null;
-try {
-    $conn = new mysqli($servername, $username, $password, $dbname, $port);
+$conn = new mysqli($servername, $username, $password, $dbname, $port);
 
-    // Check connection
-    if ($conn->connect_error) {
-        throw new Exception("Connection failed: " . $conn->connect_error);
-    }
+// Check connection
+if ($conn->connect_error) {
+    // Log the connection error for debugging
+    error_log("Database connection failed: " . $conn->connect_error);
+
+    // For operations that require database access, we'll handle this gracefully
+    // For file uploads, we can still save the file even if DB connection fails
+    $dbConnected = false;
+} else {
+    $dbConnected = true;
 
     // Set charset
     if (!$conn->set_charset("utf8mb4")) {
         error_log("Error loading character set utf8mb4: " . $conn->error);
     }
-} catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Database connection failed: ' . $e->getMessage()]);
+}
+
+// Check if it's a POST request
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['error' => 'Method not allowed']);
     exit;
 }
 
@@ -38,23 +45,20 @@ $action = isset($_POST['action']) ? $_POST['action'] : 'upload';
 
 switch ($action) {
     case 'authenticate':
-        handleAuthentication($conn);
+        handleAuthentication($conn, $dbConnected);
         break;
     case 'log_activity':
-        handleLogActivity($conn);
+        handleLogActivity($conn, $dbConnected);
         break;
     case 'save_recording_metadata':
-        handleSaveRecordingMetadata($conn);
-        break;
-    case 'debug_info':
-        handleDebugInfo($conn);
+        handleSaveRecordingMetadata($conn, $dbConnected);
         break;
     case 'ping':
         handlePing();
         break;
     case 'upload':
     default:
-        handleFileUpload($conn);
+        handleFileUpload($conn, $dbConnected);
         break;
 }
 
