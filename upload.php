@@ -2,21 +2,18 @@
 // Set content type to JSON
 header('Content-Type: application/json');
 
-// Check if it's a POST request
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['error' => 'Method not allowed']);
-    exit;
-}
+// Enable error reporting
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
-// Create database connection
-$servername = "206.72.199.6";
+// Database configuration - using localhost since database is on the same server
+$servername = "localhost"; // Database is on the same server as the PHP script
 $username = "stcloudb_104u";
 $password = "104-2019-08-10";
 $dbname = "stcloudb_104";
 $port = 3306;
 
-// Create connection with error handling
+// Create connection
 $conn = new mysqli($servername, $username, $password, $dbname, $port);
 
 // Check connection
@@ -29,6 +26,18 @@ if ($conn->connect_error) {
     $dbConnected = false;
 } else {
     $dbConnected = true;
+
+    // Set charset
+    if (!$conn->set_charset("utf8mb4")) {
+        error_log("Error loading character set utf8mb4: " . $conn->error);
+    }
+}
+
+// Check if it's a POST request
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['error' => 'Method not allowed']);
+    exit;
 }
 
 // Get the action from the request
@@ -53,114 +62,114 @@ switch ($action) {
         break;
 }
 
-function handleAuthentication($conn, $dbConnected) {
-    if (!$dbConnected) {
+function handleAuthentication($conn) {
+    try {
+        $repid = isset($_POST['repid']) ? trim($_POST['repid']) : '';
+        $nic = isset($_POST['nic']) ? trim($_POST['nic']) : '';
+
+        // Log what we received
+        error_log("Authentication attempt - RepID: '$repid', NIC: '$nic'");
+
+        if (empty($repid) || empty($nic)) {
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Missing repid or nic',
+                'received_repId' => $repid,
+                'received_nic' => $nic
+            ]);
+            exit;
+        }
+
+        // First, let's see what's in the database for this RepID
+        $debug_query = "SELECT RepID, nic, Actives FROM salesrep WHERE RepID = ?";
+        $debug_stmt = $conn->prepare($debug_query);
+        $debug_stmt->bind_param("s", $repid);
+        $debug_stmt->execute();
+        $debug_result = $debug_stmt->get_result();
+
+        $found_records = [];
+        while ($row = $debug_result->fetch_assoc()) {
+            $found_records[] = $row;
+        }
+        $debug_stmt->close();
+
+        // Now run the actual authentication query
+        $query = "SELECT * FROM salesrep WHERE RepID = ? AND nic = ? AND Actives = 'YES'";
+        $stmt = $conn->prepare($query);
+        if (!$stmt) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+
+        $stmt->bind_param("ss", $repid, $nic);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows > 0) {
+            $user = $result->fetch_assoc();
+            echo json_encode([
+                'success' => true,
+                'user' => $user,
+                'debug_info' => [
+                    'records_found_with_repId' => $found_records,
+                    'authentication_successful' => true
+                ]
+            ]);
+        } else {
+            // Authentication failed - return debug info
+            echo json_encode([
+                'success' => false,
+                'message' => 'Invalid credentials',
+                'debug_info' => [
+                    'records_found_with_repId' => $found_records,
+                    'authentication_successful' => false,
+                    'attempted_repId' => $repid,
+                    'attempted_nic' => $nic,
+                    'expected_nic_from_db' => !empty($found_records) ? $found_records[0]['nic'] : 'No record found',
+                    'expected_actives_from_db' => !empty($found_records) ? $found_records[0]['Actives'] : 'No record found'
+                ]
+            ]);
+        }
+
+        $stmt->close();
+    } catch (Exception $e) {
         http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Database connection unavailable for authentication']);
-        exit;
+        echo json_encode([
+            'success' => false,
+            'message' => 'Authentication error: ' . $e->getMessage()
+        ]);
     }
-
-    $repid = isset($_POST['repid']) ? $conn->real_escape_string($_POST['repid']) : '';
-    $nic = isset($_POST['nic']) ? $conn->real_escape_string($_POST['nic']) : '';
-
-    if (empty($repid) || empty($nic)) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Missing repid or nic']);
-        exit;
-    }
-
-    $query = "SELECT * FROM salesrep WHERE RepID = ? AND nic = ? AND Actives = 'YES'";
-
-    $stmt = $conn->prepare($query);
-    $stmt->bind_param("ss", $repid, $nic);
-    $stmt->execute();
-    $result = $stmt->get_result();
-
-    if ($result->num_rows > 0) {
-        $user = $result->fetch_assoc();
-        echo json_encode(['success' => true, 'user' => $user]);
-    } else {
-        http_response_code(401);
-        echo json_encode(['success' => false, 'message' => 'Invalid credentials']);
-    }
-
-    $stmt->close();
 }
-
-function handleLogActivity($conn, $dbConnected) {
-    $userId = isset($_POST['userId']) ? intval($_POST['userId']) : 0;
-    $activityType = isset($_POST['activityType']) ? $conn->real_escape_string($_POST['activityType']) : '';
-    $duration = isset($_POST['duration']) ? floatval($_POST['duration']) : 0;
-
-    if (!$userId || empty($activityType)) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Missing required parameters']);
-        exit;
-    }
-
-    if (!$dbConnected) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Database connection unavailable for activity logging']);
-        exit;
-    }
-
-    $query = "INSERT INTO user_activity (salesrepTb, activity_type, duration, rDateTime) VALUES (?, ?, ?, NOW())";
-
-    $stmt = $conn->prepare($query);
-    $stmt->bind_param("isd", $userId, $activityType, $duration);
-
-    if ($stmt->execute()) {
-        $insertId = $stmt->insert_id;
-        echo json_encode(['success' => true, 'id' => $insertId]);
-    } else {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Failed to log activity: ' . $stmt->error]);
-    }
-
-    $stmt->close();
-}
-
-function handleSaveRecordingMetadata($conn, $dbConnected) {
-    $brId = isset($_POST['brId']) ? intval($_POST['brId']) : 0;
-    $imgID = isset($_POST['imgID']) ? $conn->real_escape_string($_POST['imgID']) : date('U');
-    $imgName = isset($_POST['imgName']) ? $conn->real_escape_string($_POST['imgName']) : '';
-    $itmName = isset($_POST['itmName']) ? $conn->real_escape_string($_POST['itmName']) : 'Work Session Recording Segment';
-    $type = isset($_POST['type']) ? $conn->real_escape_string($_POST['type']) : 'recording';
-    $userId = isset($_POST['userId']) ? intval($_POST['userId']) : 0;
-    $status = isset($_POST['status']) ? $conn->real_escape_string($_POST['status']) : 'uploaded';
-    $date = isset($_POST['date']) ? $conn->real_escape_string($_POST['date']) : date('Y-m-d');
-    $time = isset($_POST['time']) ? $conn->real_escape_string($_POST['time']) : date('H:i:s');
-
-    if (!$userId || !$imgName) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Missing required parameters']);
-        exit;
-    }
-
-    if (!$dbConnected) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Database connection unavailable for recording metadata']);
-        exit;
-    }
-
-    $query = "INSERT INTO web_images (br_id, imgID, imgName, itmName, type, user_id, date, time, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-
-    $stmt = $conn->prepare($query);
-    $stmt->bind_param("iisssisss", $brId, $imgID, $imgName, $itmName, $type, $userId, $date, $time, $status);
-
-    if ($stmt->execute()) {
-        $insertId = $stmt->insert_id;
-        echo json_encode(['success' => true, 'id' => $insertId]);
-    } else {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Failed to save recording metadata: ' . $stmt->error]);
-    }
-
-    $stmt->close();
-}
-
 function handlePing() {
     echo json_encode(['success' => true, 'message' => 'Server is reachable']);
+}
+
+function handleDebugInfo($conn) {
+    try {
+        // Return some sample records to help with debugging
+        $query = "SELECT RepID, nic, Actives, Name FROM salesrep WHERE Actives = 'YES' LIMIT 5";
+        $result = $conn->query($query);
+
+        $sample_records = [];
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $sample_records[] = $row;
+            }
+        }
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Database connection successful',
+            'sample_records' => $sample_records,
+            'table_exists' => true
+        ]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Debug error: ' . $e->getMessage()
+        ]);
+    }
 }
 
 function handleFileUpload($conn) {
@@ -171,7 +180,7 @@ function handleFileUpload($conn) {
     $isMultipart = strpos($_SERVER['CONTENT_TYPE'] ?? '', 'multipart/form-data') !== false;
 
     if ($isMultipart) {
-        // Handle multipart form data (traditional file upload)
+        // Handle multipart form data (Traditional file upload)
         error_log("Processing multipart form data");
 
         if (!isset($_FILES['file'])) {
@@ -193,7 +202,7 @@ function handleFileUpload($conn) {
         // Validate uploaded file
         if ($uploadedFile['error'] !== UPLOAD_ERR_OK) {
             http_response_code(400);
-            echo json_encode(['error' => 'File upload error: ' . $uploadedFile['error']);
+            echo json_encode(['error' => 'File upload error: ' . $uploadedFile['error']]);
             exit;
         }
 
@@ -278,53 +287,47 @@ function handleFileUpload($conn) {
     if (file_put_contents($uploadPath, $fileBinary) !== false) {
         // File saved successfully
 
-        // Only try to insert recording metadata if database connection is available
-        if ($dbConnected) {
-            // Insert recording metadata into the database
-            $imgID = uniqid();
-            $itmName = 'Work Session Recording Segment';
-            $status = 'uploaded';
-            $date = date('Y-m-d');
-            $time = date('H:i:s');
+        // Insert recording metadata into the database
+        $imgID = crc32(uniqid()); // Use CRC32 to convert uniqid() to integer
+        $itmName = 'Work Session Recording Segment';
+        $status = 'uploaded';
+        $date = date('Y-m-d');
+        $time = date('H:i:s');
 
-            $insertQuery = "INSERT INTO web_images (br_id, imgID, imgName, itmName, type, user_id, date, time, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            $insertStmt = $conn->prepare($insertQuery);
-            if (!$insertStmt) {
-                error_log("Failed to prepare insert statement: " . $conn->error);
-            } else {
-                $insertStmt->bind_param("iisssisss", $brId, $imgID, $filename, $itmName, $type, $userId, $date, $time, $status);
-
-                if (!$insertStmt->execute()) {
-                    error_log("Failed to insert recording metadata: " . $insertStmt->error);
-                } else {
-                    error_log("Successfully inserted recording metadata for user: $userId, filename: $filename");
-                }
-                $insertStmt->close();
-            }
-
-            // Also log this as an activity in user_activity table
-            $activityQuery = "INSERT INTO user_activity (salesrepTb, activity_type, duration, rDateTime) VALUES (?, ?, 0, NOW())";
-            $activityStmt = $conn->prepare($activityQuery);
-            if (!$activityStmt) {
-                error_log("Failed to prepare activity statement: " . $conn->error);
-            } else {
-                $activityStmt->bind_param("is", $userId, $type);
-
-                if (!$activityStmt->execute()) {
-                    error_log("Failed to log upload activity: " . $activityStmt->error);
-                } else {
-                    error_log("Successfully logged upload activity for user: $userId");
-                }
-                $activityStmt->close();
-            }
+        $insertQuery = "INSERT INTO web_images (br_id, imgID, imgName, itmName, type, user_id, date, time, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $insertStmt = $conn->prepare($insertQuery);
+        if (!$insertStmt) {
+            error_log("Failed to prepare insert statement: " . $conn->error);
         } else {
-            // Database is not connected, but file was saved
-            error_log("File saved successfully but database connection unavailable for metadata logging. User: $userId, Filename: $filename");
+            $insertStmt->bind_param("iisssisss", $brId, $imgID, $filename, $itmName, $type, $userId, $date, $time, $status);
+
+            if (!$insertStmt->execute()) {
+                error_log("Failed to insert recording metadata: " . $insertStmt->error);
+            } else {
+                error_log("Successfully inserted recording metadata for user: $userId, filename: $filename");
+            }
+            $insertStmt->close();
+        }
+
+        // Also log this as an activity in user_activity table
+        $activityQuery = "INSERT INTO user_activity (salesrepTb, activity_type, duration, rDateTime) VALUES (?, ?, 0, NOW())";
+        $activityStmt = $conn->prepare($activityQuery);
+        if (!$activityStmt) {
+            error_log("Failed to prepare activity statement: " . $conn->error);
+        } else {
+            $activityStmt->bind_param("is", $userId, $type);
+
+            if (!$activityStmt->execute()) {
+                error_log("Failed to log upload activity: " . $activityStmt->error);
+            } else {
+                error_log("Successfully logged upload activity for user: $userId");
+            }
+            $activityStmt->close();
         }
 
         $response = [
             'success' => true,
-            'fileId' => $dbConnected ? $imgID : uniqid(), // Use database ID if available, otherwise generate one
+            'fileId' => $imgID, // Use database ID
             'filename' => $uniqueFilename,
             'path' => $uploadPath,
             'size' => strlen($fileBinary),
@@ -332,8 +335,7 @@ function handleFileUpload($conn) {
             'brId' => $brId,
             'type' => $type,
             'description' => $description,
-            'timestamp' => date('Y-m-d H:i:s'),
-            'dbConnected' => $dbConnected // Indicate whether DB was accessible
+            'timestamp' => date('Y-m-d H:i:s')
         ];
 
         echo json_encode($response);
@@ -349,8 +351,84 @@ function handleFileUpload($conn) {
     }
 }
 
-// Close the database connection if it was established
-if ($dbConnected) {
+function handleLogActivity($conn) {
+    try {
+        $userId = isset($_POST['userId']) ? intval($_POST['userId']) : 0;
+        $activityType = isset($_POST['activityType']) ? $conn->real_escape_string($_POST['activityType']) : '';
+        $duration = isset($_POST['duration']) ? floatval($_POST['duration']) : 0;
+
+        if (!$userId || empty($activityType)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Missing required parameters']);
+            exit;
+        }
+
+        $query = "INSERT INTO user_activity (salesrepTb, activity_type, duration, rDateTime) VALUES (?, ?, ?, NOW())";
+
+        $stmt = $conn->prepare($query);
+        if (!$stmt) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+
+        $stmt->bind_param("isd", $userId, $activityType, $duration);
+
+        if ($stmt->execute()) {
+            $insertId = $stmt->insert_id;
+            echo json_encode(['success' => true, 'id' => $insertId]);
+        } else {
+            throw new Exception("Execute failed: " . $stmt->error);
+        }
+
+        $stmt->close();
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Log activity error: ' . $e->getMessage()]);
+    }
+}
+
+function handleSaveRecordingMetadata($conn) {
+    try {
+        $brId = isset($_POST['brId']) ? intval($_POST['brId']) : 0;
+        $imgID = isset($_POST['imgID']) ? $conn->real_escape_string($_POST['imgID']) : date('U');
+        $imgName = isset($_POST['imgName']) ? $conn->real_escape_string($_POST['imgName']) : '';
+        $itmName = isset($_POST['itmName']) ? $conn->real_escape_string($_POST['itmName']) : 'Work Session Recording Segment';
+        $type = isset($_POST['type']) ? $conn->real_escape_string($_POST['type']) : 'recording';
+        $userId = isset($_POST['userId']) ? intval($_POST['userId']) : 0;
+        $status = isset($_POST['status']) ? $conn->real_escape_string($_POST['status']) : 'uploaded';
+        $date = isset($_POST['date']) ? $conn->real_escape_string($_POST['date']) : date('Y-m-d');
+        $time = isset($_POST['time']) ? $conn->real_escape_string($_POST['time']) : date('H:i:s');
+
+        if (!$userId || !$imgName) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Missing required parameters']);
+            exit;
+        }
+
+        $query = "INSERT INTO web_images (br_id, imgID, imgName, itmName, type, user_id, date, time, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        $stmt = $conn->prepare($query);
+        if (!$stmt) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+
+        $stmt->bind_param("iisssisss", $brId, $imgID, $imgName, $itmName, $type, $userId, $date, $time, $status);
+
+        if ($stmt->execute()) {
+            $insertId = $stmt->insert_id;
+            echo json_encode(['success' => true, 'id' => $insertId]);
+        } else {
+            throw new Exception("Execute failed: " . $stmt->error);
+        }
+
+        $stmt->close();
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Save recording metadata error: ' . $e->getMessage()]);
+    }
+}
+
+// Close database connection
+if ($conn) {
     $conn->close();
 }
 ?>
