@@ -6,23 +6,23 @@ const path = require("path");
 class DatabaseConnection {
   constructor() {
     // Use API endpoints instead of direct database connection
-    this.apiBaseUrl = process.env.API_BASE_URL || `${process.env.SERVER_URL}`;
+    this.apiBaseUrl = process.env.API_BASE_URL || process.env.SERVER_URL || 'http://localhost';
     this.isAuthenticated = false;
   }
 
   async connect() {
     // For API-based approach, connection just verifies the API endpoint is accessible
-    try {
-      // Test API endpoint accessibility - try a minimal POST request to check connectivity
-      const FormData = require('form-data');
-      const formData = new FormData();
-      formData.append('action', 'ping'); // Send a ping action to test connectivity
+    // Skip connection test in development to prevent hanging
+    if (process.env.NODE_ENV === 'development') {
+      console.log("Skipping API server connection test in development mode");
+      return true;
+    }
 
-      const response = await axios.post(`${this.apiBaseUrl}/upload.php`, formData, {
-        timeout: 10000,
-        headers: {
-          ...formData.getHeaders()
-        },
+    try {
+      // Test API endpoint accessibility with a quick HEAD request to check connectivity
+      // We'll try to reach the base URL to see if it's accessible
+      const response = await axios.head(this.apiBaseUrl, {
+        timeout: 3000, // Shorter timeout to prevent hanging
         validateStatus: function (status) {
           // Accept any status as endpoint exists, we just wanted to test connectivity
           return status < 500;
@@ -73,7 +73,7 @@ class DatabaseConnection {
       }
     } catch (error) {
       console.error("Authentication error:", error.message);
-      console.error("Error response:", error.response?.data || error.response?.status);
+      console.error("Error response:", error.response?.data || error.response?.status || 'No response');
 
       // If API authentication fails, try local cache
       const localAuth = await this.authenticateLocally(repid, nic);
@@ -90,6 +90,12 @@ class DatabaseConnection {
     if (!this.isAuthenticated) {
       console.log(`Offline mode: Activity '${activityType}' would have been logged for user ID: ${userId}`);
       return { success: false, error: 'Not authenticated' };
+    }
+
+    // In development mode, just return success without calling the API
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Development mode: Activity '${activityType}' logged locally for user ID: ${userId}`);
+      return { success: true, id: Date.now() };
     }
 
     try {
@@ -168,6 +174,24 @@ class DatabaseConnection {
           this.isAuthenticated = true;
           return { success: true, user: cachedData };
         }
+      }
+
+      // In development mode, allow any credentials as a fallback to enable testing
+      if (process.env.NODE_ENV === 'development') {
+        console.log("Development mode: Creating mock user for testing");
+        const mockUser = {
+          ID: 1,
+          RepID: repid,
+          Name: `Test User ${repid}`,
+          nic: nic,
+          Actives: "YES",
+          br_id: 1
+        };
+
+        // Cache the mock user data for subsequent logins
+        await this.cacheUserData(mockUser);
+        this.isAuthenticated = true;
+        return { success: true, user: mockUser };
       }
 
       return { success: false, message: "Unable to connect to server and no cached credentials available" };
