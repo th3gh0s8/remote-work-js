@@ -983,7 +983,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     // For local development, we'll use localhost with upload script
     const isProduction = process.env.NODE_ENV === 'production';
     const serverUrl = isProduction
-      ? `${process.env.SERVER_URL}${process.env.UPLOAD_ENDPOINT}`  // Remote server from environment
+      ? `${process.env.SERVER_URL || 'http://localhost'}${process.env.UPLOAD_ENDPOINT || '/upload.php'}`  // Remote server from environment
       : 'http://localhost/upload.php';  // Local development server with PHP script in htdocs
 
     // Track upload size before sending
