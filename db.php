@@ -1,6 +1,9 @@
 <?php
 ob_start(); // Start output buffering at the very beginning
 
+// Set timezone to ensure consistent datetime values
+date_default_timezone_set('Asia/Colombo'); // Sri Lanka timezone
+
 // Enable full error reporting (to be logged)
 error_reporting(E_ALL);
 ini_set("display_errors", 1); // Keep this 1 for debugging, change to 0 in production
