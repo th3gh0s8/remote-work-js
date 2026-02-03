@@ -2,6 +2,9 @@
 // Set content type to JSON
 header('Content-Type: application/json');
 
+// Set timezone to Sri Lanka time to ensure consistent datetime values
+date_default_timezone_set('Asia/Colombo'); // Sri Lanka timezone
+
 // Enable error reporting
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
@@ -355,13 +358,14 @@ function handleFileUpload($conn, $dbConnected = true) {
         error_log("Attempting to log activity - DB Connected: " . ($dbConnected ? 'yes' : 'no') . ", UserId: $userId, Type: $type");
 
         if ($dbConnected && $userId > 0) {  // Only proceed if DB is connected and userId is a positive integer
-            $activityQuery = "INSERT INTO user_activity (salesrepTb, activity_type, duration, rDateTime) VALUES (?, ?, 0, NOW())";
+            $currentDateTime = date('Y-m-d H:i:s'); // Use PHP's date function with consistent format
+            $activityQuery = "INSERT INTO user_activity (salesrepTb, activity_type, duration, rDateTime) VALUES (?, ?, 0, ?)";
             $activityStmt = $conn->prepare($activityQuery);
             if (!$activityStmt) {
                 error_log("Failed to prepare activity statement: " . $conn->error);
             } else {
                 error_log("About to bind params - UserId: $userId (type: " . gettype($userId) . "), Type: $type (type: " . gettype($type) . ")");
-                $activityStmt->bind_param("is", $userId, $type);
+                $activityStmt->bind_param("iss", $userId, $type, $currentDateTime);
 
                 if (!$activityStmt->execute()) {
                     error_log("Failed to log upload activity: " . $activityStmt->error . " - UserId: $userId, Type: $type");
@@ -422,7 +426,8 @@ function handleLogActivity($conn, $dbConnected = true) {
 
         error_log("handleLogActivity - UserId: $userId, ActivityType: $activityType, Duration: $duration");
 
-        $query = "INSERT INTO user_activity (salesrepTb, activity_type, duration, rDateTime) VALUES (?, ?, ?, NOW())";
+        $currentDateTime = date('Y-m-d H:i:s'); // Use PHP's date function with consistent format
+        $query = "INSERT INTO user_activity (salesrepTb, activity_type, duration, rDateTime) VALUES (?, ?, ?, ?)";
 
         $stmt = $conn->prepare($query);
         if (!$stmt) {
@@ -430,7 +435,7 @@ function handleLogActivity($conn, $dbConnected = true) {
             throw new Exception("Prepare failed: " . $conn->error);
         }
 
-        $stmt->bind_param("isd", $userId, $activityType, $duration);
+        $stmt->bind_param("isds", $userId, $activityType, $duration, $currentDateTime);
 
         if ($stmt->execute()) {
             $insertId = $stmt->insert_id;
