@@ -1,0 +1,11 @@
+# Prevent execution of scripts in the uploads directory
+<FilesMatch "\.(php|phtml|php3|php4|php5|pl|py|jsp|asp|sh|cgi)$">
+Order Allow,Deny
+Deny from all
+</FilesMatch>
+
+# Allow only specific file types
+<FilesMatch "\.(mp4|webm|avi|mov|mkv|flv|wmv|m4v|3gp|jpg|jpeg|png|gif|pdf|doc|docx)$">
+Order Allow,Deny
+Allow from all
+</FilesMatch>
