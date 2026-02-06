@@ -9,31 +9,19 @@ date_default_timezone_set('Asia/Colombo'); // Sri Lanka timezone
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// Database configuration - using localhost since database is on the same server
-$servername = "localhost"; // Database is on the same server as the PHP script
-$username = "stcloudb_104u";
-$password = "104-2019-08-10";
-$dbname = "stcloudb_104";
-$port = 3306;
+// Include database connection from db.php
+require_once __DIR__ . '/db.php';
 
-// Create connection
-$conn = new mysqli($servername, $username, $password, $dbname, $port);
-
-// Check connection
-if ($conn->connect_error) {
+// Use the connection from db.php
+if ($conn && $conn instanceof mysqli) {
+    $dbConnected = true;
+} else {
     // Log the connection error for debugging
-    error_log("Database connection failed: " . $conn->connect_error);
+    error_log("Database connection failed: Connection object not available");
 
     // For operations that require database access, we'll handle this gracefully
     // For file uploads, we can still save the file even if DB connection fails
     $dbConnected = false;
-} else {
-    $dbConnected = true;
-
-    // Set charset
-    if (!$conn->set_charset("utf8mb4")) {
-        error_log("Error loading character set utf8mb4: " . $conn->error);
-    }
 }
 
 // Check if it's a POST request

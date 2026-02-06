@@ -22,11 +22,11 @@ try {
     // $dbname = "pw_washio_db";
     // $port = 3306;
     //
-    $servername = "localhost";
-    $username = "stcloudb_104u";
-    $password = "104-2019-08-10";
-    $dbname = "stcloudb_104";
-    $port = 3306;
+    $servername = "localhost"; // Database server name
+    $username = "stcloudb_104u"; // Database username
+    $password = "104-2019-08-10"; // Database password
+    $dbname = "stcloudb_104"; // Database name
+    $port = 3306; // Database port
 
     $db_connection_error_message =
         "Connection not attempted or failed before error property set.";
