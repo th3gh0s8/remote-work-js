@@ -62,7 +62,6 @@
       "!*.yml",
       "!*.yaml",
       "!*.lock",
-      "!*.env",
       "!dist/**/*"
     ],
     "extraResources": [
