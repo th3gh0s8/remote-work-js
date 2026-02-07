@@ -7,6 +7,8 @@
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
     "prod": "NODE_ENV=production electron .",
+    "setup": "node setup-env.js",
+    "postinstall": "node setup-env.js",
     "build": "electron-builder --dir",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
