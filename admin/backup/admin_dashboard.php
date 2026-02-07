@@ -8,13 +8,14 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
 }
 
 // Database connection
-$host = 'localhost';
-$dbname = 'remote-xwork';
-$username = 'root'; // Default MySQL user
-$password = '';     // Default MySQL password (empty)
+$host = 'localhost'; // Database server name
+$dbname = 'stcloudb_104'; // Database name
+$username = 'stcloudb_104u'; // Database username
+$password = '104-2019-08-10'; // Database password
+$port = 3306; // Database port
 
 try {
-    $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+    $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 } catch(PDOException $e) {
     die("Connection failed: " . $e->getMessage());

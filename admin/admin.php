@@ -239,13 +239,14 @@ function showDashboard() {
     checkAdminSession();
 
     // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
+    $host = 'localhost'; // Database server name
+    $dbname = 'stcloudb_104'; // Database name
+    $username = 'stcloudb_104u'; // Database username
+    $password = '104-2019-08-10'; // Database password
+    $port = 3306; // Database port
 
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     } catch(PDOException $e) {
         die("Connection failed: " . $e->getMessage());
@@ -2071,13 +2072,14 @@ function showEditUserForm() {
     }
 
     // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
+    $host = 'localhost'; // Database server name
+    $dbname = 'stcloudb_104'; // Database name
+    $username = 'stcloudb_104u'; // Database username
+    $password = '104-2019-08-10'; // Database password
+    $port = 3306; // Database port
 
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     } catch(PDOException $e) {
         die("Connection failed: " . $e->getMessage());
@@ -2302,13 +2304,14 @@ function updateUser() {
     }
 
     // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
+    $host = 'localhost'; // Database server name
+    $dbname = 'stcloudb_104'; // Database name
+    $username = 'stcloudb_104u'; // Database username
+    $password = '104-2019-08-10'; // Database password
+    $port = 3306; // Database port
 
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     } catch(PDOException $e) {
         die("Connection failed: " . $e->getMessage());
@@ -2362,13 +2365,14 @@ function deleteUser() {
     }
 
     // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
+    $host = 'localhost'; // Database server name
+    $dbname = 'stcloudb_104'; // Database name
+    $username = 'stcloudb_104u'; // Database username
+    $password = '104-2019-08-10'; // Database password
+    $port = 3306; // Database port
 
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     } catch(PDOException $e) {
         die("Connection failed: " . $e->getMessage());
@@ -2610,13 +2614,14 @@ function createUser() {
     checkAdminSession();
 
     // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
+    $host = 'localhost'; // Database server name
+    $dbname = 'stcloudb_104'; // Database name
+    $username = 'stcloudb_104u'; // Database username
+    $password = '104-2019-08-10'; // Database password
+    $port = 3306; // Database port
 
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     } catch(PDOException $e) {
         die("Connection failed: " . $e->getMessage());
@@ -2665,13 +2670,14 @@ function showReports() {
     checkAdminSession();
 
     // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
+    $host = 'localhost'; // Database server name
+    $dbname = 'stcloudb_104'; // Database name
+    $username = 'stcloudb_104u'; // Database username
+    $password = '104-2019-08-10'; // Database password
+    $port = 3306; // Database port
 
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     } catch(PDOException $e) {
         die("Connection failed: " . $e->getMessage());
