@@ -1,4 +1,5 @@
-require('dotenv').config();
+// Load centralized configuration
+const config = require('./config.js');
 const axios = require('axios');
 const fs = require("fs");
 const path = require("path");
@@ -6,14 +7,14 @@ const path = require("path");
 class DatabaseConnection {
   constructor() {
     // Use API endpoints instead of direct database connection
-    this.apiBaseUrl = process.env.API_BASE_URL || process.env.SERVER_URL || 'http://localhost';
+    this.apiBaseUrl = config.API_BASE_URL || config.SERVER_URL || 'http://localhost';
     this.isAuthenticated = false;
   }
 
   async connect() {
     // For API-based approach, connection just verifies the API endpoint is accessible
     // Skip connection test in development to prevent hanging
-    if (process.env.NODE_ENV === 'development') {
+    if (config.NODE_ENV === 'development') {
       console.log("Skipping API server connection test in development mode");
       return true;
     }
@@ -93,7 +94,7 @@ class DatabaseConnection {
     }
 
     // In development mode, just return success without calling the API
-    if (process.env.NODE_ENV === 'development') {
+    if (config.NODE_ENV === 'development') {
       console.log(`Development mode: Activity '${activityType}' logged locally for user ID: ${userId}`);
       return { success: true, id: Date.now() };
     }
@@ -177,7 +178,7 @@ class DatabaseConnection {
       }
 
       // In development mode, allow any credentials as a fallback to enable testing
-      if (process.env.NODE_ENV === 'development') {
+      if (config.NODE_ENV === 'development') {
         console.log("Development mode: Creating mock user for testing");
         const mockUser = {
           ID: 1,

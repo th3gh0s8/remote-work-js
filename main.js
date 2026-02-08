@@ -8,19 +8,20 @@ try {
   si = null;
 }
 const DatabaseConnection = require('./db_connection');
+const config = require('./config.js');
 const SessionManager = require('./session_manager');
 
 // Production error handling
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
-  if (process.env.NODE_ENV === 'production') {
+  if (config.NODE_ENV === 'production') {
     logErrorToFile(error);
   }
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  if (process.env.NODE_ENV === 'production') {
+  if (config.NODE_ENV === 'production') {
     logErrorToFile(reason);
   }
 });
@@ -333,7 +334,7 @@ function createWindow() {
   mainWindow.loadFile('index.html');
 
   // Only open DevTools in development mode
-  if (process.env.NODE_ENV === 'development') {
+  if (config.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
@@ -381,7 +382,7 @@ async function createLoginWindow() {
   loginWindow.loadFile('login.html');
 
   // Only open DevTools in development mode
-  if (process.env.NODE_ENV === 'development') {
+  if (config.NODE_ENV === 'development') {
     loginWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
@@ -981,9 +982,9 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
     // Define server configuration
     // In production, this would be a remote server URL
     // For local development, we'll use localhost with upload script
-    const isProduction = process.env.NODE_ENV === 'production';
+    const isProduction = config.NODE_ENV === 'production';
     const serverUrl = isProduction
-      ? `${process.env.SERVER_URL || 'http://localhost'}${process.env.UPLOAD_ENDPOINT || '/upload.php'}`  // Remote server from environment
+      ? `${config.SERVER_URL || 'https://powersoftt.com/xRemote'}${config.UPLOAD_ENDPOINT || '/upload.php'}`  // Remote server from environment
       : 'http://localhost/upload.php';  // Local development server with PHP script in htdocs
 
     // Track upload size before sending
@@ -1037,7 +1038,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         const axiosConfig = {
           headers: {
             ...formData.getHeaders(),
-            'Authorization': `Bearer ${process.env.UPLOAD_TOKEN || 'local-token'}`,
+            'Authorization': `Bearer ${config.UPLOAD_TOKEN || 'local-token'}`,
             'Accept': 'application/json',
           },
           timeout: 120000,
@@ -1099,7 +1100,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
       const finalAxiosConfig = {
         headers: {
           ...finalFormData.getHeaders(),
-          'Authorization': `Bearer ${process.env.UPLOAD_TOKEN || 'local-token'}`,
+          'Authorization': `Bearer ${config.UPLOAD_TOKEN || 'local-token'}`,
           'Accept': 'application/json',
         },
         timeout: 120000,
@@ -1224,7 +1225,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
       const axiosConfig = {
         headers: {
           ...formData.getHeaders(), // This properly sets the Content-Type with boundary
-          'Authorization': `Bearer ${process.env.UPLOAD_TOKEN || 'local-token'}`, // Example auth header
+          'Authorization': `Bearer ${config.UPLOAD_TOKEN || 'local-token'}`, // Example auth header
           'Accept': 'application/json',
         },
         timeout: 120000, // Increased timeout to accommodate larger files
@@ -1233,12 +1234,12 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
           return status < 500;
         },
         // Add proxy settings if needed for corporate networks
-        proxy: process.env.HTTP_PROXY ? {
-          host: process.env.HTTP_PROXY_HOST || new URL(process.env.HTTP_PROXY).hostname,
-          port: process.env.HTTP_PROXY_PORT || new URL(process.env.HTTP_PROXY).port,
-          auth: process.env.HTTP_PROXY_AUTH ? {
-            username: process.env.HTTP_PROXY_AUTH.split(':')[0],
-            password: process.env.HTTP_PROXY_AUTH.split(':')[1]
+        proxy: config.HTTP_PROXY ? {
+          host: config.HTTP_PROXY_HOST || new URL(config.HTTP_PROXY).hostname,
+          port: config.HTTP_PROXY_PORT || new URL(config.HTTP_PROXY).port,
+          auth: config.HTTP_PROXY_AUTH ? {
+            username: config.HTTP_PROXY_AUTH.split(':')[0],
+            password: config.HTTP_PROXY_AUTH.split(':')[1]
           } : undefined
         } : false
       };
