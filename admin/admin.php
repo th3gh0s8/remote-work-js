@@ -234,11 +234,9 @@ function showLogin() {
     <?php
 }
 
-// Show admin dashboard
-function showDashboard() {
-    checkAdminSession();
-
-    // Database connection
+// Create a centralized database connection function
+function getDatabaseConnection() {
+    // Database connection parameters
     $host = 'localhost'; // Database server name
     $dbname = 'stcloudb_104'; // Database name
     $username = 'stcloudb_104u'; // Database username
@@ -248,8 +246,20 @@ function showDashboard() {
     try {
         $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        return $pdo;
     } catch(PDOException $e) {
-        die("Connection failed: " . $e->getMessage());
+        error_log("Database connection failed: " . $e->getMessage());
+        return null;
+    }
+}
+
+// Show admin dashboard
+function showDashboard() {
+    checkAdminSession();
+
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        die("Connection failed: Could not establish database connection.");
     }
 
     // Fetch active users (users who have logged in recently) - each user only once
@@ -2464,18 +2474,9 @@ function updateUser() {
         exit;
     }
 
-    // Database connection
-    $host = 'localhost'; // Database server name
-    $dbname = 'stcloudb_104'; // Database name
-    $username = 'stcloudb_104u'; // Database username
-    $password = '104-2019-08-10'; // Database password
-    $port = 3306; // Database port
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        die("Connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        die("Connection failed: Could not establish database connection.");
     }
 
     // Get form data
@@ -2525,18 +2526,9 @@ function deleteUser() {
         exit;
     }
 
-    // Database connection
-    $host = 'localhost'; // Database server name
-    $dbname = 'stcloudb_104'; // Database name
-    $username = 'stcloudb_104u'; // Database username
-    $password = '104-2019-08-10'; // Database password
-    $port = 3306; // Database port
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        die("Connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        die("Connection failed: Could not establish database connection.");
     }
 
     // Check if user exists
@@ -2774,18 +2766,9 @@ function showAddUserForm() {
 function createUser() {
     checkAdminSession();
 
-    // Database connection
-    $host = 'localhost'; // Database server name
-    $dbname = 'stcloudb_104'; // Database name
-    $username = 'stcloudb_104u'; // Database username
-    $password = '104-2019-08-10'; // Database password
-    $port = 3306; // Database port
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        die("Connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        die("Connection failed: Could not establish database connection.");
     }
 
     // Get form data
@@ -2830,18 +2813,9 @@ function createUser() {
 function showReports() {
     checkAdminSession();
 
-    // Database connection
-    $host = 'localhost'; // Database server name
-    $dbname = 'stcloudb_104'; // Database name
-    $username = 'stcloudb_104u'; // Database username
-    $password = '104-2019-08-10'; // Database password
-    $port = 3306; // Database port
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        die("Connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        die("Connection failed: Could not establish database connection.");
     }
 
     // Get date range for reports
@@ -3388,21 +3362,13 @@ function getUnreadNotificationsCount() {
 
 // Get latest recordings for a specific user
 function getUserLatestRecordings($userId, $limit = 10) {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
-        return [];
-    }
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            error_log("Database connection failed in getUserLatestRecordings");
+            return [];
+        }
 
-    try {
         $stmt = $pdo->prepare("
             SELECT w.*
             FROM web_images w
@@ -3420,21 +3386,13 @@ function getUserLatestRecordings($userId, $limit = 10) {
 
 // Get all user recordings for continuous playback
 function getAllUserRecordings($userId) {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
-        return [];
-    }
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            error_log("Database connection failed in getAllUserRecordings");
+            return [];
+        }
 
-    try {
         $stmt = $pdo->prepare("
             SELECT w.*
             FROM web_images w
@@ -4445,15 +4403,13 @@ function getNewUploads() {
         exit;
     }
 
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Database connection failed']);
+            exit;
+        }
 
         // Query for new recordings since the specified time (only from today)
         $stmt = $pdo->prepare("
@@ -4494,15 +4450,13 @@ function getLatestVideo() {
         exit;
     }
 
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Database connection failed']);
+            exit;
+        }
 
         // Query for the latest recording from today
         $stmt = $pdo->prepare("
@@ -4541,15 +4495,12 @@ function showCombineRecordings() {
         exit;
     }
 
-    // Get user info
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Location: ?action=dashboard&error=Database connection failed');
+            exit;
+        }
 
         $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
         $stmt->execute([$userId]);
@@ -4822,15 +4773,12 @@ function generateCombinedVideo() {
     //     exit;
     // }
 
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=Database connection failed');
+            exit;
+        }
 
         // Get user info
         $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
@@ -5360,15 +5308,12 @@ function showLiveWatching() {
         exit;
     }
 
-    // Get user info
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Location: ?action=dashboard&error=Database connection failed');
+            exit;
+        }
 
         $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
         $stmt->execute([$userId]);
