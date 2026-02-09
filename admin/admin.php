@@ -1434,7 +1434,7 @@ function showDashboard() {
                                                 </span>
                                             </td>
                                             <td><?php echo htmlspecialchars($activity['rDateTime']); ?></td>
-                                            <td><?php echo htmlspecialchars($activity['duration']); ?> sec</td>
+                                            <td><?php echo htmlspecialchars($activity['duration'] ?? 0); ?> sec</td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>

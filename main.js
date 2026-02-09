@@ -628,6 +628,12 @@ setInterval(monitorWindowState, 200); // Check every 200ms
  * @param {string} activityType - The activity identifier (e.g., "login", "check-in", "break-start", "break-end", "check-out").
  * @param {number} [duration=0] - Optional duration in seconds associated with the activity (use 0 when not applicable).
  * @returns {{ success: true, id: number } | { success: false, error: string } | undefined}
+/**
+ * Logs a user activity to the database.
+ *
+ * @param {string} activityType - The activity identifier (e.g., "login", "check-in", "break-start", "break-end", "check-out").
+ * @param {number} [duration=0] - Optional duration in seconds to associate with the activity.
+ * @returns {Promise<Object>} An object indicating success or failure of the operation.
  *   If the operation runs: an object with `success: true` and the inserted row `id`, or `success: false` with an `error` message on failure.
  *   Returns `undefined` immediately if there is no active database connection or no logged-in user.
  */

@@ -697,6 +697,7 @@ function handleLogActivity($conn, $dbConnected = true) {
     }
 }
 
+
 function handleSaveRecordingMetadata($conn, $dbConnected = true) {
     try {
         $brId = isset($_POST['brId']) ? intval($_POST['brId']) : 0;
