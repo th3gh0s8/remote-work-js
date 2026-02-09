@@ -430,9 +430,22 @@ function showDashboard() {
 
     // Add search condition for Rep ID or Name
     if (!empty($act_search_term)) {
-        $where_conditions[] = "(s.RepID LIKE ? OR s.Name LIKE ?)";
-        $params[] = "%{$act_search_term}%";
-        $params[] = "%{$act_search_term}%";
+        // Check if the search term is in "RepID - Name" format
+        if (preg_match('/^(.*?)\s*-\s*(.*)$/', $act_search_term, $matches)) {
+            // Extract RepID and Name parts
+            $repIdPart = trim($matches[1]);
+            $namePart = trim($matches[2]);
+            
+            // Search for records matching both RepID and Name parts
+            $where_conditions[] = "(s.RepID LIKE ? AND s.Name LIKE ?)";
+            $params[] = "%{$repIdPart}%";
+            $params[] = "%{$namePart}%";
+        } else {
+            // Regular search for Rep ID or Name
+            $where_conditions[] = "(s.RepID LIKE ? OR s.Name LIKE ?)";
+            $params[] = "%{$act_search_term}%";
+            $params[] = "%{$act_search_term}%";
+        }
     }
 
     $where_clause = !empty($where_conditions) ? "WHERE " . implode(" AND ", $where_conditions) : "";
@@ -1930,8 +1943,9 @@ function showDashboard() {
                 const input = document.getElementById('act_search_input');
                 const hiddenInput = document.getElementById('act_search');
 
-                input.value = repId + ' - ' + name;
-                hiddenInput.value = repId; // Store RepID for search
+                const displayValue = repId + ' - ' + name;
+                input.value = displayValue;
+                hiddenInput.value = displayValue; // Store the full display value for search
 
                 // Close the dropdown
                 document.getElementById('act-user-dropdown').style.display = 'none';
