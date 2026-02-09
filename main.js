@@ -1,5 +1,27 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, net } = require('electron');
 const path = require('path');
+
+// Ensure only one instance of the application runs
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  console.log('Another instance of the application is already running. Quitting this instance.');
+  app.quit();
+  return; // Exit this instance if another is already running
+}
+
+// Handle second instance attempts
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+  // Someone tried to run a second instance, we should focus our window
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  } else if (loginWindow) {
+    if (loginWindow.isMinimized()) loginWindow.restore();
+    loginWindow.focus();
+  }
+});
+
 let si; // Declare but don't require initially
 try {
   si = require('systeminformation');
