@@ -364,6 +364,37 @@ function handleFileUpload($conn, $dbConnected = true) {
                     echo json_encode(['error' => 'Could not read combined file']);
                     exit;
                 }
+                
+                // Continue with the same processing as regular upload
+                // Get metadata from POST data
+                $userId = isset($_POST['userId']) ? intval($_POST['userId']) : 0;
+                $brId = isset($_POST['brId']) ? intval($_POST['brId']) : 0;
+                $filename = isset($_POST['filename']) ? basename($_POST['filename']) : 'recording_' . time();
+                $type = isset($_POST['type']) ? $_POST['type'] : 'recording';
+                $description = isset($_POST['description']) ? $_POST['description'] : 'Work Session Recording';
+                
+                error_log("Chunked upload params - UserId: $userId, BrId: $brId, Filename: $filename");
+                
+                // At this point, we have the combined file data in $fileBinary
+                // and the metadata from POST data, so continue with the same validation
+                // and processing as regular upload
+                // The rest of the processing will continue after this block
+                
+                // Set the unique filename for the upload path
+                $fileExtension = pathinfo($filename, PATHINFO_EXTENSION);
+                $fileExtension = preg_replace('/[^a-zA-Z0-9]/', '', $fileExtension); // Only alphanumeric characters in extension
+                $baseFilename = preg_replace('/[^a-zA-Z0-9._-]/', '_', pathinfo($filename, PATHINFO_FILENAME));
+
+                // Generate unique filename to prevent conflicts
+                $uniqueFilename = uniqid('vid_', true) . '_' . $baseFilename;
+                if ($fileExtension) {
+                    $uniqueFilename .= '.' . $fileExtension;
+                }
+                // Ensure the final filename is safe
+                $uniqueFilename = basename($uniqueFilename);
+                
+                // Skip the regular upload processing since we already have the file data
+                // The code will continue to the validation and database insertion part
             } else {
                 // Not the last chunk, return success to continue upload
                 echo json_encode(['success' => true, 'message' => "Chunk $chunk saved"]);
@@ -401,6 +432,15 @@ function handleFileUpload($conn, $dbConnected = true) {
             if (isset($uploadedFile['size']) && strlen($fileBinary) !== $uploadedFile['size']) {
                 error_log("Warning: Expected file size {$uploadedFile['size']} but got " . strlen($fileBinary));
             }
+
+            // Get metadata from POST data
+            $userId = isset($_POST['userId']) ? intval($_POST['userId']) : 0;
+            $brId = isset($_POST['brId']) ? intval($_POST['brId']) : 0;
+            $filename = isset($_POST['filename']) ? basename($_POST['filename']) : 'recording_' . time();
+            $type = isset($_POST['type']) ? $_POST['type'] : 'recording';
+            $description = isset($_POST['description']) ? $_POST['description'] : 'Work Session Recording';
+
+            error_log("Regular upload params - UserId: $userId, BrId: $brId, Filename: $filename");
         }
     } else {
         // Handle raw binary data in request body
