@@ -2594,7 +2594,40 @@ function deleteUser() {
         $stmt = $pdo->prepare("DELETE FROM user_activity WHERE salesrepTb = ?");
         $stmt->execute([$userId]);
 
-        // Also delete associated web images
+        // First, get the filenames to delete the physical files
+        $stmt = $pdo->prepare("SELECT imgName FROM web_images WHERE user_id = ?");
+        $stmt->execute([$userId]);
+        $userRecordings = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        // Delete the physical files
+        foreach ($userRecordings as $filename) {
+            // First, try to delete the exact filename
+            $filepath = __DIR__ . '/../uploads/' . basename($filename);
+            
+            if (file_exists($filepath)) {
+                unlink($filepath);
+            } else {
+                // If exact filename doesn't exist, search for files ending with the requested name
+                $uploads_dir = __DIR__ . '/../uploads/';
+                if (is_dir($uploads_dir)) {
+                    $files = scandir($uploads_dir);
+                    foreach ($files as $file) {
+                        if ($file !== '.' && $file !== '..') {
+                            // Check if the file ends with the requested filename
+                            if (preg_match('/' . preg_quote(basename($filename), '/') . '$/', $file)) {
+                                $fullPath = $uploads_dir . $file;
+                                if (file_exists($fullPath)) {
+                                    unlink($fullPath);
+                                }
+                                break; // Stop after finding and deleting the matching file
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also delete associated web images from database
         $stmt = $pdo->prepare("DELETE FROM web_images WHERE user_id = ?");
         $stmt->execute([$userId]);
 
@@ -2643,6 +2676,39 @@ function handleBulkDelete() {
         $placeholders = str_repeat('?,', count($selectedIds) - 1) . '?';
         
         if ($type === 'active' || $type === 'all-users') {
+            // First, get the filenames of recordings to delete the physical files
+            $stmt = $pdo->prepare("SELECT imgName FROM web_images WHERE user_id IN ($placeholders)");
+            $stmt->execute($selectedIds);
+            $allUserRecordings = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Delete the physical files
+            foreach ($allUserRecordings as $filename) {
+                // First, try to delete the exact filename
+                $filepath = __DIR__ . '/../uploads/' . basename($filename);
+                
+                if (file_exists($filepath)) {
+                    unlink($filepath);
+                } else {
+                    // If exact filename doesn't exist, search for files ending with the requested name
+                    $uploads_dir = __DIR__ . '/../uploads/';
+                    if (is_dir($uploads_dir)) {
+                        $files = scandir($uploads_dir);
+                        foreach ($files as $file) {
+                            if ($file !== '.' && $file !== '..') {
+                                // Check if the file ends with the requested filename
+                                if (preg_match('/' . preg_quote(basename($filename), '/') . '$/', $file)) {
+                                    $fullPath = $uploads_dir . $file;
+                                    if (file_exists($fullPath)) {
+                                        unlink($fullPath);
+                                    }
+                                    break; // Stop after finding and deleting the matching file
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Delete users and associated data
             $stmt = $pdo->prepare("DELETE FROM salesrep WHERE ID IN ($placeholders)");
             $stmt->execute($selectedIds);
@@ -2651,14 +2717,47 @@ function handleBulkDelete() {
             $stmt = $pdo->prepare("DELETE FROM user_activity WHERE salesrepTb IN ($placeholders)");
             $stmt->execute($selectedIds);
 
-            // Also delete associated web images
+            // Also delete associated web images from database
             $stmt = $pdo->prepare("DELETE FROM web_images WHERE user_id IN ($placeholders)");
             $stmt->execute($selectedIds);
 
             $deletedCount = count($selectedIds);
             header("Location: ?action=dashboard&success=$deletedCount user(s) deleted successfully");
         } elseif ($type === 'recordings') {
-            // Delete recordings
+            // First, get the filenames to delete the physical files
+            $stmt = $pdo->prepare("SELECT imgName FROM web_images WHERE ID IN ($placeholders)");
+            $stmt->execute($selectedIds);
+            $recordingsToDelete = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Delete the physical files
+            foreach ($recordingsToDelete as $filename) {
+                // First, try to delete the exact filename
+                $filepath = __DIR__ . '/../uploads/' . basename($filename);
+                
+                if (file_exists($filepath)) {
+                    unlink($filepath);
+                } else {
+                    // If exact filename doesn't exist, search for files ending with the requested name
+                    $uploads_dir = __DIR__ . '/../uploads/';
+                    if (is_dir($uploads_dir)) {
+                        $files = scandir($uploads_dir);
+                        foreach ($files as $file) {
+                            if ($file !== '.' && $file !== '..') {
+                                // Check if the file ends with the requested filename
+                                if (preg_match('/' . preg_quote(basename($filename), '/') . '$/', $file)) {
+                                    $fullPath = $uploads_dir . $file;
+                                    if (file_exists($fullPath)) {
+                                        unlink($fullPath);
+                                    }
+                                    break; // Stop after finding and deleting the matching file
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Delete recordings from database
             $stmt = $pdo->prepare("DELETE FROM web_images WHERE ID IN ($placeholders)");
             $stmt->execute($selectedIds);
 
