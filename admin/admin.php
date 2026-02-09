@@ -1306,6 +1306,7 @@ function showDashboard() {
                         </div>
                         <button class="apply-filters" onclick="filterRecordings()">Apply Filters</button>
                         <small style="align-self: center; color: #666;">Leave empty to show all records</small>
+                        <button class="delete-btn" onclick="confirmBulkDelete('recording-checkbox', 'recordings')" style="margin-left: 15px;">Delete Selected</button>
                     </div>
                     <div class="section-content">
                         <?php if (count($recordings) > 0): ?>
@@ -1356,10 +1357,6 @@ function showDashboard() {
                                     <?php endforeach; ?>
                                 </tbody>
                             </table>
-                            
-                            <div class="bulk-actions" style="margin-top: 15px;">
-                                <button class="delete-btn" onclick="confirmBulkDelete('recording-checkbox', 'recordings')">Delete Selected</button>
-                            </div>
 
                             <!-- Pagination -->
                             <div class="pagination">
