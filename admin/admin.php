@@ -3259,17 +3259,9 @@ function showReports() {
 
 // Add a notification
 function addNotification($title, $message, $type = 'info', $priority = 'normal') {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        error_log("Database connection failed in addNotification");
         return false;
     }
 
@@ -3285,17 +3277,9 @@ function addNotification($title, $message, $type = 'info', $priority = 'normal')
 
 // Get notifications
 function getNotifications($limit = 10, $offset = 0) {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        error_log("Database connection failed in getNotifications");
         return [];
     }
 
@@ -3337,17 +3321,9 @@ function markNotificationAsRead($notificationId) {
 
 // Get unread notifications count
 function getUnreadNotificationsCount() {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        error_log("Database connection failed in getUnreadNotificationsCount");
         return 0;
     }
 
@@ -3455,18 +3431,15 @@ function showNotifications() {
     $notifications = getNotifications($limit, $offset);
 
     // Get total count for pagination
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-        $countStmt = $pdo->query("SELECT COUNT(*) as total FROM admin_notifications");
-        $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
-        $totalPages = ceil($totalCount / $limit);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            $totalPages = 1;
+        } else {
+            $countStmt = $pdo->query("SELECT COUNT(*) as total FROM admin_notifications");
+            $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+            $totalPages = ceil($totalCount / $limit);
+        }
     } catch(PDOException $e) {
         $totalPages = 1;
     }
@@ -3762,12 +3735,6 @@ createNotificationsTable();
 function createBackup() {
     checkAdminSession();
 
-    // Database connection info
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     // Define backup directory
     $backup_dir = __DIR__ . '/../backups/';
 
@@ -3785,8 +3752,13 @@ function createBackup() {
     $tables = ['salesrep', 'user_activity', 'web_images', 'admin_notifications'];
 
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            return [
+                'success' => false,
+                'error' => 'Database connection failed'
+            ];
+        }
 
         $backup_content = "-- Database Backup for remote-xwork\n";
         $backup_content .= "-- Generated on: " . date('Y-m-d H:i:s') . "\n\n";
@@ -3904,15 +3876,14 @@ function restoreFromBackup($filename) {
         ];
     }
 
-    // Database connection info
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            return [
+                'success' => false,
+                'error' => 'Database connection failed'
+            ];
+        }
 
         // Read the backup file
         $sql = file_get_contents($filepath);
@@ -4986,15 +4957,12 @@ function showWatchCombined() {
         exit;
     }
 
-    // Get user info
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Location: ?action=dashboard&error=Database connection failed');
+            exit;
+        }
 
         $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
         $stmt->execute([$userId]);
