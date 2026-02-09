@@ -45,6 +45,9 @@ switch ($action) {
     case 'delete_user':
         deleteUser();
         break;
+    case 'bulk_delete':
+        handleBulkDelete();
+        break;
     case 'add_user':
         showAddUserForm();
         break;
@@ -1309,6 +1312,7 @@ function showDashboard() {
                             <table>
                                 <thead>
                                     <tr>
+                                        <th><input type="checkbox" id="select-all-recordings" onclick="toggleSelectAll(this, 'recording-checkbox')"></th>
                                         <th><a href="?action=dashboard&page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">ID <?= $rec_sort_column === 'w.ID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                         <th><a href="?action=dashboard&page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">User <?= $rec_sort_column === 's.Name' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                         <th><a href="?action=dashboard&page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">Rep ID <?= $rec_sort_column === 's.RepID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
@@ -1322,6 +1326,7 @@ function showDashboard() {
                                 <tbody>
                                     <?php foreach ($recordings as $recording): ?>
                                         <tr>
+                                            <td><input type="checkbox" class="recording-checkbox" name="selected_recordings[]" value="<?php echo $recording['ID']; ?>"></td>
                                             <td><?php echo htmlspecialchars($recording['ID']); ?></td>
                                             <td><?php echo htmlspecialchars($recording['user_name'] ?? 'N/A'); ?></td>
                                             <td><?php echo htmlspecialchars($recording['RepID'] ?? 'N/A'); ?></td>
@@ -1351,6 +1356,10 @@ function showDashboard() {
                                     <?php endforeach; ?>
                                 </tbody>
                             </table>
+                            
+                            <div class="bulk-actions" style="margin-top: 15px;">
+                                <button class="delete-btn" onclick="confirmBulkDelete('recording-checkbox', 'recordings')">Delete Selected</button>
+                            </div>
 
                             <!-- Pagination -->
                             <div class="pagination">
@@ -2008,6 +2017,53 @@ function showDashboard() {
                     }
                 }
             });
+            
+            // Function to toggle all checkboxes in a group
+            function toggleSelectAll(sourceCheckbox, className) {
+                const checkboxes = document.querySelectorAll('.' + className);
+                checkboxes.forEach(checkbox => {
+                    checkbox.checked = sourceCheckbox.checked;
+                });
+            }
+            
+            // Function to confirm bulk delete
+            function confirmBulkDelete(className, type) {
+                const selectedCheckboxes = document.querySelectorAll('.' + className + ':checked');
+                if (selectedCheckboxes.length === 0) {
+                    alert('Please select at least one item to delete.');
+                    return;
+                }
+                
+                const count = selectedCheckboxes.length;
+                const userConfirmed = confirm(`Are you sure you want to delete ${count} selected ${type} record(s)? This action cannot be undone.`);
+                
+                if (userConfirmed) {
+                    // Create a form to submit the selected IDs
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = '?action=bulk_delete';
+                    
+                    // Add all selected IDs as hidden inputs
+                    selectedCheckboxes.forEach(checkbox => {
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = 'selected_ids[]';
+                        input.value = checkbox.value;
+                        form.appendChild(input);
+                    });
+                    
+                    // Add a hidden input for the type of records
+                    const typeInput = document.createElement('input');
+                    typeInput.type = 'hidden';
+                    typeInput.name = 'type';
+                    typeInput.value = type;
+                    form.appendChild(typeInput);
+                    
+                    // Submit the form
+                    document.body.appendChild(form);
+                    form.submit();
+                }
+            }
         </script>
     </body>
     </html>
@@ -2549,6 +2605,76 @@ function deleteUser() {
         exit;
     } catch(PDOException $e) {
         header('Location: ?action=dashboard&error=Error deleting user: ' . $e->getMessage());
+        exit;
+    }
+}
+
+// Handle bulk deletion of users
+function handleBulkDelete() {
+    checkAdminSession();
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Location: ?action=dashboard&error=Invalid request method');
+        exit;
+    }
+
+    $selectedIds = $_POST['selected_ids'] ?? [];
+    $type = $_POST['type'] ?? '';
+
+    if (empty($selectedIds)) {
+        header('Location: ?action=dashboard&error=No items selected for deletion');
+        exit;
+    }
+
+    // Sanitize IDs
+    $selectedIds = array_map('intval', $selectedIds);
+    $selectedIds = array_filter($selectedIds, function($id) { return $id > 0; });
+
+    if (empty($selectedIds)) {
+        header('Location: ?action=dashboard&error=No valid IDs provided');
+        exit;
+    }
+
+    // Database connection
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        header('Location: ?action=dashboard&error=Database connection failed');
+        exit;
+    }
+
+    try {
+        $placeholders = str_repeat('?,', count($selectedIds) - 1) . '?';
+        
+        if ($type === 'active' || $type === 'all-users') {
+            // Delete users and associated data
+            $stmt = $pdo->prepare("DELETE FROM salesrep WHERE ID IN ($placeholders)");
+            $stmt->execute($selectedIds);
+
+            // Also delete associated user activities
+            $stmt = $pdo->prepare("DELETE FROM user_activity WHERE salesrepTb IN ($placeholders)");
+            $stmt->execute($selectedIds);
+
+            // Also delete associated web images
+            $stmt = $pdo->prepare("DELETE FROM web_images WHERE user_id IN ($placeholders)");
+            $stmt->execute($selectedIds);
+
+            $deletedCount = count($selectedIds);
+            header("Location: ?action=dashboard&success=$deletedCount user(s) deleted successfully");
+        } elseif ($type === 'recordings') {
+            // Delete recordings
+            $stmt = $pdo->prepare("DELETE FROM web_images WHERE ID IN ($placeholders)");
+            $stmt->execute($selectedIds);
+
+            $deletedCount = count($selectedIds);
+            header("Location: ?action=dashboard&success=$deletedCount recording(s) deleted successfully");
+        } else {
+            header('Location: ?action=dashboard&error=Invalid type specified');
+            exit;
+        }
+        
+        exit;
+    } catch(PDOException $e) {
+        header('Location: ?action=dashboard&error=Error deleting records: ' . $e->getMessage());
         exit;
     }
 }
