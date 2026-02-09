@@ -3295,17 +3295,9 @@ function getNotifications($limit = 10, $offset = 0) {
 
 // Mark notification as read
 function markNotificationAsRead($notificationId) {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        error_log("Database connection failed in markNotificationAsRead");
         return false;
     }
 
@@ -3385,17 +3377,9 @@ function getAllUserRecordings($userId) {
 
 // Create notifications table if it doesn't exist
 function createNotificationsTable() {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        error_log("Database connection failed in createNotificationsTable");
         return false;
     }
 
