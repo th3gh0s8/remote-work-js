@@ -399,6 +399,9 @@ function showDashboard() {
     // Get date range for filtering (moved before the user activities query)
     $start_date = $_GET['start_date'] ?? '';
     $end_date = $_GET['end_date'] ?? '';
+    
+    // Get search term for activities
+    $act_search_term = $_GET['act_search'] ?? '';
 
     // Fetch recent user activities
     $act_sort_column = $_GET['act_sort_col'] ?? 'ua.rDateTime';
@@ -414,7 +417,7 @@ function showDashboard() {
     // Validate sort direction
     $act_sort_direction = strtoupper($act_sort_direction) === 'ASC' ? 'ASC' : 'DESC';
 
-    // Build the WHERE clause dynamically to allow for date range filtering
+    // Build the WHERE clause dynamically to allow for date range filtering and search
     $where_conditions = [];
     $params = [];
 
@@ -423,6 +426,13 @@ function showDashboard() {
         $where_conditions[] = "ua.rDateTime BETWEEN ? AND ?";
         $params[] = $start_date . ' 00:00:00';
         $params[] = $end_date . ' 23:59:59';
+    }
+
+    // Add search condition for Rep ID or Name
+    if (!empty($act_search_term)) {
+        $where_conditions[] = "(s.RepID LIKE ? OR s.Name LIKE ?)";
+        $params[] = "%{$act_search_term}%";
+        $params[] = "%{$act_search_term}%";
     }
 
     $where_clause = !empty($where_conditions) ? "WHERE " . implode(" AND ", $where_conditions) : "";
@@ -1349,6 +1359,32 @@ function showDashboard() {
                         <h2><span class="icon">📋</span> Recent User Activities</h2>
                     </div>
                     <div class="filters">
+                        <div class="filter-item" style="position: relative; display: inline-block; min-width: 200px;">
+                            <label for="act_search_input">Search by Rep ID or Name:</label>
+                            <input type="text" id="act_search_input" placeholder="Search by Rep ID or Name"
+                                   value="<?php echo htmlspecialchars($act_search_term); ?>"
+                                   onclick="toggleActUserDropdown()"
+                                   onkeyup="filterActUserOptions()" />
+                            <div id="act-user-dropdown" class="dropdown-content">
+                                <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold; border-bottom: 1px solid #ddd;" onclick="selectAllActUsers()">Select All Users</div>
+                                <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold;" onclick="clearActUserSelection()">Clear Selection</div>
+                                <?php
+                                // Fetch all users for the filter dropdown
+                                $act_user_filter_stmt = $pdo->query("SELECT ID, Name, RepID FROM salesrep WHERE Actives = 'YES' ORDER BY RepID");
+                                $act_filter_users = $act_user_filter_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                                foreach ($act_filter_users as $filter_user): ?>
+                                    <div class="user-option"
+                                         data-id="<?php echo $filter_user['ID']; ?>"
+                                         data-repid="<?php echo htmlspecialchars($filter_user['RepID']); ?>"
+                                         data-name="<?php echo htmlspecialchars($filter_user['Name']); ?>"
+                                         onclick="selectActUser(<?php echo $filter_user['ID']; ?>, '<?php echo addslashes($filter_user['RepID']); ?>', '<?php echo addslashes($filter_user['Name']); ?>')">
+                                        <?php echo htmlspecialchars($filter_user['RepID']); ?> - <?php echo htmlspecialchars($filter_user['Name']); ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <input type="hidden" id="act_search" name="act_search" value="<?php echo $act_search_term; ?>" />
+                        </div>
                         <div class="filter-item">
                             <label for="start_date">Start Date:</label>
                             <input type="date" id="start_date" name="start_date" value="<?php echo $start_date; ?>">
@@ -1365,12 +1401,12 @@ function showDashboard() {
                             <table>
                                 <thead>
                                     <tr>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">ID <?= $act_sort_column === 'ua.ID' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">User <?= $act_sort_column === 's.Name' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Rep ID <?= $act_sort_column === 's.RepID' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Activity Type <?= $act_sort_column === 'ua.activity_type' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Date/Time <?= $act_sort_column === 'ua.rDateTime' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Duration <?= $act_sort_column === 'ua.duration' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">ID <?= $act_sort_column === 'ua.ID' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">User <?= $act_sort_column === 's.Name' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">Rep ID <?= $act_sort_column === 's.RepID' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">Activity Type <?= $act_sort_column === 'ua.activity_type' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">Date/Time <?= $act_sort_column === 'ua.rDateTime' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">Duration <?= $act_sort_column === 'ua.duration' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1394,18 +1430,18 @@ function showDashboard() {
                             <!-- Pagination -->
                             <div class="pagination">
                                 <?php if ($act_page > 1): ?>
-                                    <a href="?action=dashboard&page=activities&activities_page=<?= $act_page - 1 ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">&laquo; Previous</a>
+                                    <a href="?action=dashboard&page=activities&activities_page=<?= $act_page - 1 ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">&laquo; Previous</a>
                                 <?php endif; ?>
 
                                 <?php for ($i = max(1, $act_page - 2); $i <= min($act_total_pages, $act_page + 2); $i++): ?>
-                                    <a href="?action=dashboard&page=activities&activities_page=<?= $i ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>"
+                                    <a href="?action=dashboard&page=activities&activities_page=<?= $i ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>"
                                        class="<?= $i == $act_page ? 'active' : '' ?>">
                                         <?= $i ?>
                                     </a>
                                 <?php endfor; ?>
 
                                 <?php if ($act_page < $act_total_pages): ?>
-                                    <a href="?action=dashboard&page=activities&activities_page=<?= $act_page + 1 ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Next &raquo;</a>
+                                    <a href="?action=dashboard&page=activities&activities_page=<?= $act_page + 1 ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">Next &raquo;</a>
                                 <?php endif; ?>
                             </div>
                         <?php else: ?>
@@ -1620,13 +1656,45 @@ function showDashboard() {
             function applyFilters() {
                 const startDate = document.getElementById('start_date').value;
                 const endDate = document.getElementById('end_date').value;
-
+                const searchInput = document.getElementById('act_search_input').value;
+                const hiddenSearchValue = document.getElementById('act_search').value;
+                
                 let url = '?action=dashboard&page=activities&';
                 if (startDate) {
                     url += `start_date=${startDate}&`;
                 }
                 if (endDate) {
                     url += `end_date=${endDate}&`;
+                }
+                // Use the hidden value if it exists (for dropdown selections), otherwise use the visible input
+                if (hiddenSearchValue) {
+                    url += `act_search=${encodeURIComponent(hiddenSearchValue)}&`;
+                } else if (searchInput) {
+                    url += `act_search=${encodeURIComponent(searchInput)}&`;
+                }
+
+                // Remove trailing '&' if present
+                if (url.endsWith('&')) {
+                    url = url.slice(0, -1);
+                }
+
+                // Reload the page with the filter parameters
+                window.location.href = url;
+            }
+            
+            function applyFiltersWithTerm(searchTerm) {
+                const startDate = document.getElementById('start_date').value;
+                const endDate = document.getElementById('end_date').value;
+                
+                let url = '?action=dashboard&page=activities&';
+                if (startDate) {
+                    url += `start_date=${startDate}&`;
+                }
+                if (endDate) {
+                    url += `end_date=${endDate}&`;
+                }
+                if (searchTerm) {
+                    url += `act_search=${encodeURIComponent(searchTerm)}&`;
                 }
 
                 // Remove trailing '&' if present
@@ -1837,6 +1905,85 @@ function showDashboard() {
                 // Redirect to add user page
                 window.location.href = '?action=add_user';
             }
+
+            // Functions for the user dropdown in activities search
+            function selectAllActUsers() {
+                const input = document.getElementById('act_search_input');
+                const hiddenInput = document.getElementById('act_search');
+
+                input.value = 'All Users Selected';
+                hiddenInput.value = ''; // Empty value means no specific user filter
+
+                // Close the dropdown
+                document.getElementById('act-user-dropdown').style.display = 'none';
+
+                // Trigger the filter function
+                applyFilters();
+            }
+
+            function toggleActUserDropdown() {
+                const dropdown = document.getElementById('act-user-dropdown');
+                dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+            }
+
+            function selectActUser(userId, repId, name) {
+                const input = document.getElementById('act_search_input');
+                const hiddenInput = document.getElementById('act_search');
+
+                input.value = repId + ' - ' + name;
+                hiddenInput.value = repId; // Store RepID for search
+
+                // Close the dropdown
+                document.getElementById('act-user-dropdown').style.display = 'none';
+
+                // Trigger the filter function
+                applyFilters();
+            }
+
+            function clearActUserSelection() {
+                const input = document.getElementById('act_search_input');
+                const hiddenInput = document.getElementById('act_search');
+
+                input.value = '';
+                hiddenInput.value = '';
+
+                // Close the dropdown
+                document.getElementById('act-user-dropdown').style.display = 'none';
+
+                // Trigger the filter function
+                applyFilters();
+            }
+
+            function filterActUserOptions() {
+                const input = document.getElementById('act_search_input');
+                const filter = input.value.toLowerCase();
+                const div = document.getElementById('act-user-dropdown');
+                const options = div.getElementsByClassName('user-option');
+
+                for (let i = 0; i < options.length; i++) {
+                    const repId = options[i].getAttribute('data-repid').toLowerCase();
+                    const name = options[i].getAttribute('data-name').toLowerCase();
+
+                    if (repId.indexOf(filter) > -1 || name.indexOf(filter) > -1) {
+                        options[i].style.display = '';
+                    } else {
+                        options[i].style.display = 'none';
+                    }
+                }
+            }
+
+            // Close dropdown if clicked outside
+            document.addEventListener('click', function(event) {
+                const input = document.getElementById('act_search_input');
+                const dropdown = document.getElementById('act-user-dropdown');
+
+                if (event.target !== input && !input.contains(event.target) &&
+                    event.target !== dropdown && !dropdown.contains(event.target)) {
+                    if (dropdown.style.display === 'block') {
+                        dropdown.style.display = 'none';
+                    }
+                }
+            });
         </script>
     </body>
     </html>
