@@ -45,6 +45,9 @@ switch ($action) {
     case 'delete_user':
         deleteUser();
         break;
+    case 'bulk_delete':
+        handleBulkDelete();
+        break;
     case 'add_user':
         showAddUserForm();
         break;
@@ -234,11 +237,9 @@ function showLogin() {
     <?php
 }
 
-// Show admin dashboard
-function showDashboard() {
-    checkAdminSession();
-
-    // Database connection
+// Create a centralized database connection function
+function getDatabaseConnection() {
+    // Database connection parameters
     $host = 'localhost'; // Database server name
     $dbname = 'stcloudb_104'; // Database name
     $username = 'stcloudb_104u'; // Database username
@@ -248,8 +249,20 @@ function showDashboard() {
     try {
         $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        return $pdo;
     } catch(PDOException $e) {
-        die("Connection failed: " . $e->getMessage());
+        error_log("Database connection failed: " . $e->getMessage());
+        return null;
+    }
+}
+
+// Show admin dashboard
+function showDashboard() {
+    checkAdminSession();
+
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        die("Connection failed: Could not establish database connection.");
     }
 
     // Fetch active users (users who have logged in recently) - each user only once
@@ -399,6 +412,9 @@ function showDashboard() {
     // Get date range for filtering (moved before the user activities query)
     $start_date = $_GET['start_date'] ?? '';
     $end_date = $_GET['end_date'] ?? '';
+    
+    // Get search term for activities
+    $act_search_term = $_GET['act_search'] ?? '';
 
     // Fetch recent user activities
     $act_sort_column = $_GET['act_sort_col'] ?? 'ua.rDateTime';
@@ -414,7 +430,7 @@ function showDashboard() {
     // Validate sort direction
     $act_sort_direction = strtoupper($act_sort_direction) === 'ASC' ? 'ASC' : 'DESC';
 
-    // Build the WHERE clause dynamically to allow for date range filtering
+    // Build the WHERE clause dynamically to allow for date range filtering and search
     $where_conditions = [];
     $params = [];
 
@@ -423,6 +439,26 @@ function showDashboard() {
         $where_conditions[] = "ua.rDateTime BETWEEN ? AND ?";
         $params[] = $start_date . ' 00:00:00';
         $params[] = $end_date . ' 23:59:59';
+    }
+
+    // Add search condition for Rep ID or Name
+    if (!empty($act_search_term)) {
+        // Check if the search term is in "RepID - Name" format
+        if (preg_match('/^(.*?)\s*-\s*(.*)$/', $act_search_term, $matches)) {
+            // Extract RepID and Name parts
+            $repIdPart = trim($matches[1]);
+            $namePart = trim($matches[2]);
+            
+            // Search for records matching both RepID and Name parts
+            $where_conditions[] = "(s.RepID LIKE ? AND s.Name LIKE ?)";
+            $params[] = "%{$repIdPart}%";
+            $params[] = "%{$namePart}%";
+        } else {
+            // Regular search for Rep ID or Name
+            $where_conditions[] = "(s.RepID LIKE ? OR s.Name LIKE ?)";
+            $params[] = "%{$act_search_term}%";
+            $params[] = "%{$act_search_term}%";
+        }
     }
 
     $where_clause = !empty($where_conditions) ? "WHERE " . implode(" AND ", $where_conditions) : "";
@@ -1270,12 +1306,14 @@ function showDashboard() {
                         </div>
                         <button class="apply-filters" onclick="filterRecordings()">Apply Filters</button>
                         <small style="align-self: center; color: #666;">Leave empty to show all records</small>
+                        <button class="delete-btn" onclick="confirmBulkDelete('recording-checkbox', 'recordings')" style="margin-left: 15px;">Delete Selected</button>
                     </div>
                     <div class="section-content">
                         <?php if (count($recordings) > 0): ?>
                             <table>
                                 <thead>
                                     <tr>
+                                        <th><input type="checkbox" id="select-all-recordings" onclick="toggleSelectAll(this, 'recording-checkbox')"></th>
                                         <th><a href="?action=dashboard&page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">ID <?= $rec_sort_column === 'w.ID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                         <th><a href="?action=dashboard&page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">User <?= $rec_sort_column === 's.Name' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                         <th><a href="?action=dashboard&page=recordings&recordings_page=<?= $rec_page ?>&rec_sort_col=<?= $rec_sort_column ?>&rec_sort_dir=<?= $rec_sort_direction ?><?php if (!empty($rec_start_date)): ?>&rec_start_date=<?= $rec_start_date ?><?php endif; ?><?php if (!empty($rec_end_date)): ?>&rec_end_date=<?= $rec_end_date ?><?php endif; ?><?php if (!empty($rec_user_filter)): ?>&rec_user_filter=<?= $rec_user_filter ?><?php endif; ?>">Rep ID <?= $rec_sort_column === 's.RepID' ? ($rec_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
@@ -1289,6 +1327,7 @@ function showDashboard() {
                                 <tbody>
                                     <?php foreach ($recordings as $recording): ?>
                                         <tr>
+                                            <td><input type="checkbox" class="recording-checkbox" name="selected_recordings[]" value="<?php echo $recording['ID']; ?>"></td>
                                             <td><?php echo htmlspecialchars($recording['ID']); ?></td>
                                             <td><?php echo htmlspecialchars($recording['user_name'] ?? 'N/A'); ?></td>
                                             <td><?php echo htmlspecialchars($recording['RepID'] ?? 'N/A'); ?></td>
@@ -1349,6 +1388,32 @@ function showDashboard() {
                         <h2><span class="icon">📋</span> Recent User Activities</h2>
                     </div>
                     <div class="filters">
+                        <div class="filter-item" style="position: relative; display: inline-block; min-width: 200px;">
+                            <label for="act_search_input">Search by Rep ID or Name:</label>
+                            <input type="text" id="act_search_input" placeholder="Search by Rep ID or Name"
+                                   value="<?php echo htmlspecialchars($act_search_term); ?>"
+                                   onclick="toggleActUserDropdown()"
+                                   onkeyup="filterActUserOptions()" />
+                            <div id="act-user-dropdown" class="dropdown-content">
+                                <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold; border-bottom: 1px solid #ddd;" onclick="selectAllActUsers()">Select All Users</div>
+                                <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold;" onclick="clearActUserSelection()">Clear Selection</div>
+                                <?php
+                                // Fetch all users for the filter dropdown
+                                $act_user_filter_stmt = $pdo->query("SELECT ID, Name, RepID FROM salesrep WHERE Actives = 'YES' ORDER BY RepID");
+                                $act_filter_users = $act_user_filter_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                                foreach ($act_filter_users as $filter_user): ?>
+                                    <div class="user-option"
+                                         data-id="<?php echo $filter_user['ID']; ?>"
+                                         data-repid="<?php echo htmlspecialchars($filter_user['RepID']); ?>"
+                                         data-name="<?php echo htmlspecialchars($filter_user['Name']); ?>"
+                                         onclick="selectActUser(<?php echo $filter_user['ID']; ?>, '<?php echo addslashes($filter_user['RepID']); ?>', '<?php echo addslashes($filter_user['Name']); ?>')">
+                                        <?php echo htmlspecialchars($filter_user['RepID']); ?> - <?php echo htmlspecialchars($filter_user['Name']); ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <input type="hidden" id="act_search" name="act_search" value="<?php echo $act_search_term; ?>" />
+                        </div>
                         <div class="filter-item">
                             <label for="start_date">Start Date:</label>
                             <input type="date" id="start_date" name="start_date" value="<?php echo $start_date; ?>">
@@ -1365,12 +1430,12 @@ function showDashboard() {
                             <table>
                                 <thead>
                                     <tr>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">ID <?= $act_sort_column === 'ua.ID' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">User <?= $act_sort_column === 's.Name' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Rep ID <?= $act_sort_column === 's.RepID' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Activity Type <?= $act_sort_column === 'ua.activity_type' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Date/Time <?= $act_sort_column === 'ua.rDateTime' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Duration <?= $act_sort_column === 'ua.duration' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">ID <?= $act_sort_column === 'ua.ID' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">User <?= $act_sort_column === 's.Name' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">Rep ID <?= $act_sort_column === 's.RepID' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">Activity Type <?= $act_sort_column === 'ua.activity_type' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">Date/Time <?= $act_sort_column === 'ua.rDateTime' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=activities&activities_page=<?= $act_page ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">Duration <?= $act_sort_column === 'ua.duration' ? ($act_sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1385,7 +1450,7 @@ function showDashboard() {
                                                 </span>
                                             </td>
                                             <td><?php echo htmlspecialchars($activity['rDateTime']); ?></td>
-                                            <td><?php echo htmlspecialchars($activity['duration']); ?> sec</td>
+                                            <td><?php echo htmlspecialchars($activity['duration'] ?? 0); ?> sec</td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -1394,18 +1459,18 @@ function showDashboard() {
                             <!-- Pagination -->
                             <div class="pagination">
                                 <?php if ($act_page > 1): ?>
-                                    <a href="?action=dashboard&page=activities&activities_page=<?= $act_page - 1 ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">&laquo; Previous</a>
+                                    <a href="?action=dashboard&page=activities&activities_page=<?= $act_page - 1 ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">&laquo; Previous</a>
                                 <?php endif; ?>
 
                                 <?php for ($i = max(1, $act_page - 2); $i <= min($act_total_pages, $act_page + 2); $i++): ?>
-                                    <a href="?action=dashboard&page=activities&activities_page=<?= $i ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>"
+                                    <a href="?action=dashboard&page=activities&activities_page=<?= $i ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>"
                                        class="<?= $i == $act_page ? 'active' : '' ?>">
                                         <?= $i ?>
                                     </a>
                                 <?php endfor; ?>
 
                                 <?php if ($act_page < $act_total_pages): ?>
-                                    <a href="?action=dashboard&page=activities&activities_page=<?= $act_page + 1 ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?>">Next &raquo;</a>
+                                    <a href="?action=dashboard&page=activities&activities_page=<?= $act_page + 1 ?>&act_sort_col=<?= $act_sort_column ?>&act_sort_dir=<?= $act_sort_direction ?><?php if (!empty($start_date)): ?>&start_date=<?= $start_date ?><?php endif; ?><?php if (!empty($end_date)): ?>&end_date=<?= $end_date ?><?php endif; ?><?php if (!empty($act_search_term)): ?>&act_search=<?= urlencode($act_search_term) ?><?php endif; ?>">Next &raquo;</a>
                                 <?php endif; ?>
                             </div>
                         <?php else: ?>
@@ -1620,13 +1685,45 @@ function showDashboard() {
             function applyFilters() {
                 const startDate = document.getElementById('start_date').value;
                 const endDate = document.getElementById('end_date').value;
-
+                const searchInput = document.getElementById('act_search_input').value;
+                const hiddenSearchValue = document.getElementById('act_search').value;
+                
                 let url = '?action=dashboard&page=activities&';
                 if (startDate) {
                     url += `start_date=${startDate}&`;
                 }
                 if (endDate) {
                     url += `end_date=${endDate}&`;
+                }
+                // Use the hidden value if it exists (for dropdown selections), otherwise use the visible input
+                if (hiddenSearchValue) {
+                    url += `act_search=${encodeURIComponent(hiddenSearchValue)}&`;
+                } else if (searchInput) {
+                    url += `act_search=${encodeURIComponent(searchInput)}&`;
+                }
+
+                // Remove trailing '&' if present
+                if (url.endsWith('&')) {
+                    url = url.slice(0, -1);
+                }
+
+                // Reload the page with the filter parameters
+                window.location.href = url;
+            }
+            
+            function applyFiltersWithTerm(searchTerm) {
+                const startDate = document.getElementById('start_date').value;
+                const endDate = document.getElementById('end_date').value;
+                
+                let url = '?action=dashboard&page=activities&';
+                if (startDate) {
+                    url += `start_date=${startDate}&`;
+                }
+                if (endDate) {
+                    url += `end_date=${endDate}&`;
+                }
+                if (searchTerm) {
+                    url += `act_search=${encodeURIComponent(searchTerm)}&`;
                 }
 
                 // Remove trailing '&' if present
@@ -1836,6 +1933,133 @@ function showDashboard() {
             function addUser() {
                 // Redirect to add user page
                 window.location.href = '?action=add_user';
+            }
+
+            // Functions for the user dropdown in activities search
+            function selectAllActUsers() {
+                const input = document.getElementById('act_search_input');
+                const hiddenInput = document.getElementById('act_search');
+
+                input.value = 'All Users Selected';
+                hiddenInput.value = ''; // Empty value means no specific user filter
+
+                // Close the dropdown
+                document.getElementById('act-user-dropdown').style.display = 'none';
+
+                // Trigger the filter function
+                applyFilters();
+            }
+
+            function toggleActUserDropdown() {
+                const dropdown = document.getElementById('act-user-dropdown');
+                dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+            }
+
+            function selectActUser(userId, repId, name) {
+                const input = document.getElementById('act_search_input');
+                const hiddenInput = document.getElementById('act_search');
+
+                const displayValue = repId + ' - ' + name;
+                input.value = displayValue;
+                hiddenInput.value = displayValue; // Store the full display value for search
+
+                // Close the dropdown
+                document.getElementById('act-user-dropdown').style.display = 'none';
+
+                // Trigger the filter function
+                applyFilters();
+            }
+
+            function clearActUserSelection() {
+                const input = document.getElementById('act_search_input');
+                const hiddenInput = document.getElementById('act_search');
+
+                input.value = '';
+                hiddenInput.value = '';
+
+                // Close the dropdown
+                document.getElementById('act-user-dropdown').style.display = 'none';
+
+                // Trigger the filter function
+                applyFilters();
+            }
+
+            function filterActUserOptions() {
+                const input = document.getElementById('act_search_input');
+                const filter = input.value.toLowerCase();
+                const div = document.getElementById('act-user-dropdown');
+                const options = div.getElementsByClassName('user-option');
+
+                for (let i = 0; i < options.length; i++) {
+                    const repId = options[i].getAttribute('data-repid').toLowerCase();
+                    const name = options[i].getAttribute('data-name').toLowerCase();
+
+                    if (repId.indexOf(filter) > -1 || name.indexOf(filter) > -1) {
+                        options[i].style.display = '';
+                    } else {
+                        options[i].style.display = 'none';
+                    }
+                }
+            }
+
+            // Close dropdown if clicked outside
+            document.addEventListener('click', function(event) {
+                const input = document.getElementById('act_search_input');
+                const dropdown = document.getElementById('act-user-dropdown');
+
+                if (event.target !== input && !input.contains(event.target) &&
+                    event.target !== dropdown && !dropdown.contains(event.target)) {
+                    if (dropdown.style.display === 'block') {
+                        dropdown.style.display = 'none';
+                    }
+                }
+            });
+            
+            // Function to toggle all checkboxes in a group
+            function toggleSelectAll(sourceCheckbox, className) {
+                const checkboxes = document.querySelectorAll('.' + className);
+                checkboxes.forEach(checkbox => {
+                    checkbox.checked = sourceCheckbox.checked;
+                });
+            }
+            
+            // Function to confirm bulk delete
+            function confirmBulkDelete(className, type) {
+                const selectedCheckboxes = document.querySelectorAll('.' + className + ':checked');
+                if (selectedCheckboxes.length === 0) {
+                    alert('Please select at least one item to delete.');
+                    return;
+                }
+                
+                const count = selectedCheckboxes.length;
+                const userConfirmed = confirm(`Are you sure you want to delete ${count} selected ${type} record(s)? This action cannot be undone.`);
+                
+                if (userConfirmed) {
+                    // Create a form to submit the selected IDs
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = '?action=bulk_delete';
+                    
+                    // Add all selected IDs as hidden inputs
+                    selectedCheckboxes.forEach(checkbox => {
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = 'selected_ids[]';
+                        input.value = checkbox.value;
+                        form.appendChild(input);
+                    });
+                    
+                    // Add a hidden input for the type of records
+                    const typeInput = document.createElement('input');
+                    typeInput.type = 'hidden';
+                    typeInput.name = 'type';
+                    typeInput.value = type;
+                    form.appendChild(typeInput);
+                    
+                    // Submit the form
+                    document.body.appendChild(form);
+                    form.submit();
+                }
             }
         </script>
     </body>
@@ -2071,18 +2295,9 @@ function showEditUserForm() {
         exit;
     }
 
-    // Database connection
-    $host = 'localhost'; // Database server name
-    $dbname = 'stcloudb_104'; // Database name
-    $username = 'stcloudb_104u'; // Database username
-    $password = '104-2019-08-10'; // Database password
-    $port = 3306; // Database port
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        die("Connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        die("Connection failed: Could not establish database connection.");
     }
 
     // Fetch user data
@@ -2303,18 +2518,9 @@ function updateUser() {
         exit;
     }
 
-    // Database connection
-    $host = 'localhost'; // Database server name
-    $dbname = 'stcloudb_104'; // Database name
-    $username = 'stcloudb_104u'; // Database username
-    $password = '104-2019-08-10'; // Database password
-    $port = 3306; // Database port
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        die("Connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        die("Connection failed: Could not establish database connection.");
     }
 
     // Get form data
@@ -2364,18 +2570,9 @@ function deleteUser() {
         exit;
     }
 
-    // Database connection
-    $host = 'localhost'; // Database server name
-    $dbname = 'stcloudb_104'; // Database name
-    $username = 'stcloudb_104u'; // Database username
-    $password = '104-2019-08-10'; // Database password
-    $port = 3306; // Database port
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        die("Connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        die("Connection failed: Could not establish database connection.");
     }
 
     // Check if user exists
@@ -2397,14 +2594,184 @@ function deleteUser() {
         $stmt = $pdo->prepare("DELETE FROM user_activity WHERE salesrepTb = ?");
         $stmt->execute([$userId]);
 
-        // Also delete associated web images
+        // First, get the filenames to delete the physical files
+        $stmt = $pdo->prepare("SELECT imgName FROM web_images WHERE user_id = ?");
+        $stmt->execute([$userId]);
+        $userRecordings = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        // Delete the physical files
+        foreach ($userRecordings as $filename) {
+            // First, try to delete the exact filename
+            $filepath = __DIR__ . '/../uploads/' . basename($filename);
+            
+            if (file_exists($filepath)) {
+                unlink($filepath);
+            } else {
+                // If exact filename doesn't exist, search for files ending with the requested name
+                $uploads_dir = __DIR__ . '/../uploads/';
+                if (is_dir($uploads_dir)) {
+                    $files = scandir($uploads_dir);
+                    foreach ($files as $file) {
+                        if ($file !== '.' && $file !== '..') {
+                            // Check if the file ends with the requested filename
+                            if (preg_match('/' . preg_quote(basename($filename), '/') . '$/', $file)) {
+                                $fullPath = $uploads_dir . $file;
+                                if (file_exists($fullPath)) {
+                                    unlink($fullPath);
+                                }
+                                break; // Stop after finding and deleting the matching file
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also delete associated web images from database
         $stmt = $pdo->prepare("DELETE FROM web_images WHERE user_id = ?");
         $stmt->execute([$userId]);
 
-        header('Location: ?action=dashboard&success=User deleted successfully');
+        header('Location: ?action=dashboard&page=all_users&success=User deleted successfully');
         exit;
     } catch(PDOException $e) {
         header('Location: ?action=dashboard&error=Error deleting user: ' . $e->getMessage());
+        exit;
+    }
+}
+
+// Handle bulk deletion of users
+function handleBulkDelete() {
+    checkAdminSession();
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Location: ?action=dashboard&error=Invalid request method');
+        exit;
+    }
+
+    $selectedIds = $_POST['selected_ids'] ?? [];
+    $type = $_POST['type'] ?? '';
+
+    if (empty($selectedIds)) {
+        header('Location: ?action=dashboard&error=No items selected for deletion');
+        exit;
+    }
+
+    // Sanitize IDs
+    $selectedIds = array_map('intval', $selectedIds);
+    $selectedIds = array_filter($selectedIds, function($id) { return $id > 0; });
+
+    if (empty($selectedIds)) {
+        header('Location: ?action=dashboard&error=No valid IDs provided');
+        exit;
+    }
+
+    // Database connection
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        header('Location: ?action=dashboard&error=Database connection failed');
+        exit;
+    }
+
+    try {
+        $placeholders = str_repeat('?,', count($selectedIds) - 1) . '?';
+        
+        if ($type === 'active' || $type === 'all-users') {
+            // First, get the filenames of recordings to delete the physical files
+            $stmt = $pdo->prepare("SELECT imgName FROM web_images WHERE user_id IN ($placeholders)");
+            $stmt->execute($selectedIds);
+            $allUserRecordings = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Delete the physical files
+            foreach ($allUserRecordings as $filename) {
+                // First, try to delete the exact filename
+                $filepath = __DIR__ . '/../uploads/' . basename($filename);
+                
+                if (file_exists($filepath)) {
+                    unlink($filepath);
+                } else {
+                    // If exact filename doesn't exist, search for files ending with the requested name
+                    $uploads_dir = __DIR__ . '/../uploads/';
+                    if (is_dir($uploads_dir)) {
+                        $files = scandir($uploads_dir);
+                        foreach ($files as $file) {
+                            if ($file !== '.' && $file !== '..') {
+                                // Check if the file ends with the requested filename
+                                if (preg_match('/' . preg_quote(basename($filename), '/') . '$/', $file)) {
+                                    $fullPath = $uploads_dir . $file;
+                                    if (file_exists($fullPath)) {
+                                        unlink($fullPath);
+                                    }
+                                    break; // Stop after finding and deleting the matching file
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Delete users and associated data
+            $stmt = $pdo->prepare("DELETE FROM salesrep WHERE ID IN ($placeholders)");
+            $stmt->execute($selectedIds);
+
+            // Also delete associated user activities
+            $stmt = $pdo->prepare("DELETE FROM user_activity WHERE salesrepTb IN ($placeholders)");
+            $stmt->execute($selectedIds);
+
+            // Also delete associated web images from database
+            $stmt = $pdo->prepare("DELETE FROM web_images WHERE user_id IN ($placeholders)");
+            $stmt->execute($selectedIds);
+
+            $deletedCount = count($selectedIds);
+            header("Location: ?action=dashboard&page=all_users&success=$deletedCount user(s) deleted successfully");
+        } elseif ($type === 'recordings') {
+            // First, get the filenames to delete the physical files
+            $stmt = $pdo->prepare("SELECT imgName FROM web_images WHERE ID IN ($placeholders)");
+            $stmt->execute($selectedIds);
+            $recordingsToDelete = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Delete the physical files
+            foreach ($recordingsToDelete as $filename) {
+                // First, try to delete the exact filename
+                $filepath = __DIR__ . '/../uploads/' . basename($filename);
+                
+                if (file_exists($filepath)) {
+                    unlink($filepath);
+                } else {
+                    // If exact filename doesn't exist, search for files ending with the requested name
+                    $uploads_dir = __DIR__ . '/../uploads/';
+                    if (is_dir($uploads_dir)) {
+                        $files = scandir($uploads_dir);
+                        foreach ($files as $file) {
+                            if ($file !== '.' && $file !== '..') {
+                                // Check if the file ends with the requested filename
+                                if (preg_match('/' . preg_quote(basename($filename), '/') . '$/', $file)) {
+                                    $fullPath = $uploads_dir . $file;
+                                    if (file_exists($fullPath)) {
+                                        unlink($fullPath);
+                                    }
+                                    break; // Stop after finding and deleting the matching file
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Delete recordings from database
+            $stmt = $pdo->prepare("DELETE FROM web_images WHERE ID IN ($placeholders)");
+            $stmt->execute($selectedIds);
+
+            $deletedCount = count($selectedIds);
+            // Stay on the same page (recordings tab) after deletion
+            header("Location: ?action=dashboard&page=recordings&success=$deletedCount recording(s) deleted successfully");
+        } else {
+            header('Location: ?action=dashboard&error=Invalid type specified');
+            exit;
+        }
+        
+        exit;
+    } catch(PDOException $e) {
+        header('Location: ?action=dashboard&error=Error deleting records: ' . $e->getMessage());
         exit;
     }
 }
@@ -2613,18 +2980,9 @@ function showAddUserForm() {
 function createUser() {
     checkAdminSession();
 
-    // Database connection
-    $host = 'localhost'; // Database server name
-    $dbname = 'stcloudb_104'; // Database name
-    $username = 'stcloudb_104u'; // Database username
-    $password = '104-2019-08-10'; // Database password
-    $port = 3306; // Database port
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        die("Connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        die("Connection failed: Could not establish database connection.");
     }
 
     // Get form data
@@ -2669,18 +3027,9 @@ function createUser() {
 function showReports() {
     checkAdminSession();
 
-    // Database connection
-    $host = 'localhost'; // Database server name
-    $dbname = 'stcloudb_104'; // Database name
-    $username = 'stcloudb_104u'; // Database username
-    $password = '104-2019-08-10'; // Database password
-    $port = 3306; // Database port
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        die("Connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        die("Connection failed: Could not establish database connection.");
     }
 
     // Get date range for reports
@@ -3124,17 +3473,9 @@ function showReports() {
 
 // Add a notification
 function addNotification($title, $message, $type = 'info', $priority = 'normal') {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        error_log("Database connection failed in addNotification");
         return false;
     }
 
@@ -3150,17 +3491,9 @@ function addNotification($title, $message, $type = 'info', $priority = 'normal')
 
 // Get notifications
 function getNotifications($limit = 10, $offset = 0) {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        error_log("Database connection failed in getNotifications");
         return [];
     }
 
@@ -3176,17 +3509,9 @@ function getNotifications($limit = 10, $offset = 0) {
 
 // Mark notification as read
 function markNotificationAsRead($notificationId) {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        error_log("Database connection failed in markNotificationAsRead");
         return false;
     }
 
@@ -3202,17 +3527,9 @@ function markNotificationAsRead($notificationId) {
 
 // Get unread notifications count
 function getUnreadNotificationsCount() {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        error_log("Database connection failed in getUnreadNotificationsCount");
         return 0;
     }
 
@@ -3227,21 +3544,13 @@ function getUnreadNotificationsCount() {
 
 // Get latest recordings for a specific user
 function getUserLatestRecordings($userId, $limit = 10) {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
-        return [];
-    }
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            error_log("Database connection failed in getUserLatestRecordings");
+            return [];
+        }
 
-    try {
         $stmt = $pdo->prepare("
             SELECT w.*
             FROM web_images w
@@ -3259,21 +3568,13 @@ function getUserLatestRecordings($userId, $limit = 10) {
 
 // Get all user recordings for continuous playback
 function getAllUserRecordings($userId) {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
-        return [];
-    }
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            error_log("Database connection failed in getAllUserRecordings");
+            return [];
+        }
 
-    try {
         $stmt = $pdo->prepare("
             SELECT w.*
             FROM web_images w
@@ -3290,17 +3591,9 @@ function getAllUserRecordings($userId) {
 
 // Create notifications table if it doesn't exist
 function createNotificationsTable() {
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root'; // Default MySQL user
-    $password = '';     // Default MySQL password (empty)
-
-    try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch(PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        error_log("Database connection failed in createNotificationsTable");
         return false;
     }
 
@@ -3336,18 +3629,15 @@ function showNotifications() {
     $notifications = getNotifications($limit, $offset);
 
     // Get total count for pagination
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-        $countStmt = $pdo->query("SELECT COUNT(*) as total FROM admin_notifications");
-        $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
-        $totalPages = ceil($totalCount / $limit);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            $totalPages = 1;
+        } else {
+            $countStmt = $pdo->query("SELECT COUNT(*) as total FROM admin_notifications");
+            $totalCount = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+            $totalPages = ceil($totalCount / $limit);
+        }
     } catch(PDOException $e) {
         $totalPages = 1;
     }
@@ -3643,12 +3933,6 @@ createNotificationsTable();
 function createBackup() {
     checkAdminSession();
 
-    // Database connection info
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     // Define backup directory
     $backup_dir = __DIR__ . '/../backups/';
 
@@ -3666,8 +3950,13 @@ function createBackup() {
     $tables = ['salesrep', 'user_activity', 'web_images', 'admin_notifications'];
 
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            return [
+                'success' => false,
+                'error' => 'Database connection failed'
+            ];
+        }
 
         $backup_content = "-- Database Backup for remote-xwork\n";
         $backup_content .= "-- Generated on: " . date('Y-m-d H:i:s') . "\n\n";
@@ -3785,15 +4074,14 @@ function restoreFromBackup($filename) {
         ];
     }
 
-    // Database connection info
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            return [
+                'success' => false,
+                'error' => 'Database connection failed'
+            ];
+        }
 
         // Read the backup file
         $sql = file_get_contents($filepath);
@@ -4284,15 +4572,13 @@ function getNewUploads() {
         exit;
     }
 
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Database connection failed']);
+            exit;
+        }
 
         // Query for new recordings since the specified time (only from today)
         $stmt = $pdo->prepare("
@@ -4333,15 +4619,13 @@ function getLatestVideo() {
         exit;
     }
 
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Database connection failed']);
+            exit;
+        }
 
         // Query for the latest recording from today
         $stmt = $pdo->prepare("
@@ -4380,15 +4664,12 @@ function showCombineRecordings() {
         exit;
     }
 
-    // Get user info
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Location: ?action=dashboard&error=Database connection failed');
+            exit;
+        }
 
         $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
         $stmt->execute([$userId]);
@@ -4661,15 +4942,12 @@ function generateCombinedVideo() {
     //     exit;
     // }
 
-    // Database connection
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Location: ?action=combine_recordings&user_id=' . $userId . '&error=Database connection failed');
+            exit;
+        }
 
         // Get user info
         $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
@@ -4877,15 +5155,12 @@ function showWatchCombined() {
         exit;
     }
 
-    // Get user info
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Location: ?action=dashboard&error=Database connection failed');
+            exit;
+        }
 
         $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
         $stmt->execute([$userId]);
@@ -5199,15 +5474,12 @@ function showLiveWatching() {
         exit;
     }
 
-    // Get user info
-    $host = 'localhost';
-    $dbname = 'remote-xwork';
-    $username = 'root';
-    $password = '';
-
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo = getDatabaseConnection();
+        if (!$pdo) {
+            header('Location: ?action=dashboard&error=Database connection failed');
+            exit;
+        }
 
         $stmt = $pdo->prepare("SELECT * FROM salesrep WHERE ID = ?");
         $stmt->execute([$userId]);

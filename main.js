@@ -1,5 +1,27 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, net } = require('electron');
 const path = require('path');
+
+// Ensure only one instance of the application runs
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  console.log('Another instance of the application is already running. Quitting this instance.');
+  app.quit();
+  return; // Exit this instance if another is already running
+}
+
+// Handle second instance attempts
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+  // Someone tried to run a second instance, we should focus our window
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  } else if (loginWindow) {
+    if (loginWindow.isMinimized()) loginWindow.restore();
+    loginWindow.focus();
+  }
+});
+
 let si; // Declare but don't require initially
 try {
   si = require('systeminformation');
@@ -628,6 +650,13 @@ setInterval(monitorWindowState, 200); // Check every 200ms
  * @param {string} activityType - The activity identifier (e.g., "login", "check-in", "break-start", "break-end", "check-out").
  * @param {number} [duration=0] - Optional duration in seconds associated with the activity (use 0 when not applicable).
  * @returns {{ success: true, id: number } | { success: false, error: string } | undefined}
+ */
+/**
+ * Logs a user activity to the database.
+ *
+ * @param {string} activityType - The activity identifier (e.g., "login", "check-in", "break-start", "break-end", "check-out").
+ * @param {number} [duration=0] - Optional duration in seconds to associate with the activity.
+ * @returns {Promise<Object>} An object indicating success or failure of the operation.
  *   If the operation runs: an object with `success: true` and the inserted row `id`, or `success: false` with an `error` message on failure.
  *   Returns `undefined` immediately if there is no active database connection or no logged-in user.
  */
@@ -636,7 +665,7 @@ async function logUserActivity(activityType, duration = 0) {
     console.error('User not logged in');
     // In offline mode, we could store activities locally for later sync
     // For now, we'll just log to console
-    console.log(`Offline mode: Activity '${activityType}' would have been logged for user ID: ${loggedInUser?.ID || 'unknown'}`);
+    console.log(`Offline mode: Activity '${activityType}' would have been logged for user ID: ${(loggedInUser && loggedInUser.ID) ? loggedInUser.ID : 'unknown'}`);
     return { success: false, error: 'User not logged in' };
   }
 
@@ -698,12 +727,55 @@ ipcMain.handle('logout-request', async (event) => {
 
     await createLoginWindow();
 
+    // Process any pending video uploads in background after logout
+    processPendingVideoUploads();
+
     return { success: true };
   } catch (error) {
     console.error('Error during logout:', error);
     return { success: false, error: error.message };
   }
 });
+
+// Function to process pending video uploads in background after logout
+async function processPendingVideoUploads() {
+  // This function will be called after logout to handle any pending video uploads
+  // It runs in the background to avoid blocking the logout process
+  
+  // Create a separate process or thread to handle video uploads
+  const { spawn } = require('child_process');
+  const path = require('path');
+  
+  // Path to a separate script that handles video uploads
+  const uploadScript = path.join(__dirname, 'video_upload_handler.js');
+  
+  // Spawn a child process to handle video uploads
+  // Pass parameters as command-line arguments instead of IPC
+  const args = [
+    uploadScript,
+    '--userId', (loggedInUser && loggedInUser.ID) ? loggedInUser.ID : '0',
+    '--uploadDir', path.join(__dirname, '../uploads'),
+    '--serverUrl', 'https://powersoftt.com/xRemote/upload.php'
+  ];
+  
+  const uploadProcess = spawn(process.execPath, args, {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe', 'ignore'] // Don't use IPC since we're passing via args
+  });
+
+  // Handle any errors from the upload process
+  uploadProcess.stderr.on('data', (data) => {
+    console.error('Video upload process error:', data.toString());
+  });
+
+  // Handle completion of the upload process
+  uploadProcess.on('close', (code) => {
+    console.log(`Video upload process exited with code ${code}`);
+  });
+
+  // Unref the process so the main app can exit
+  uploadProcess.unref();
+}
 
 // Handle successful login
 ipcMain.handle('login-success', async (event, user) => {
@@ -917,6 +989,10 @@ ipcMain.handle('check-out', async (event) => {
 
   try {
     const result = await logUserActivity('check-out');
+    
+    // Process any pending video uploads in background after check-out
+    processPendingVideoUploads();
+    
     return result;
   } catch (error) {
     console.error('Error logging check-out:', error);
@@ -1071,7 +1147,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
         }
 
         if (!chunkResponse) {
-          throw new Error(`All chunk ${i} upload attempts failed. Last error: ${chunkLastError?.message || 'Unknown error'}`);
+          throw new Error(`All chunk ${i} upload attempts failed. Last error: ${(chunkLastError && chunkLastError.message) ? chunkLastError.message : 'Unknown error'}`);
         }
 
         if (chunkResponse.status >= 400) {
@@ -1130,7 +1206,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
       }
 
       if (!finalResponse) {
-        throw new Error(`All final processing attempts failed. Last error: ${finalLastError?.message || 'Unknown error'}`);
+        throw new Error(`All final processing attempts failed. Last error: ${(finalLastError && finalLastError.message) ? finalLastError.message : 'Unknown error'}`);
       }
 
       console.log('Server response status:', finalResponse.status);
@@ -1270,7 +1346,7 @@ ipcMain.handle('save-recording', async (event, buffer, filename) => {
       }
 
     if (!response) {
-      throw new Error(`All upload attempts failed. Last error: ${lastError?.message || 'Unknown error'}`);
+      throw new Error(`All upload attempts failed. Last error: ${(lastError && lastError.message) ? lastError.message : 'Unknown error'}`);
     }
 
     console.log('Server response status:', response.status);
