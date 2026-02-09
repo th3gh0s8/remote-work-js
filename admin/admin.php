@@ -2631,7 +2631,7 @@ function deleteUser() {
         $stmt = $pdo->prepare("DELETE FROM web_images WHERE user_id = ?");
         $stmt->execute([$userId]);
 
-        header('Location: ?action=dashboard&success=User deleted successfully');
+        header('Location: ?action=dashboard&page=all_users&success=User deleted successfully');
         exit;
     } catch(PDOException $e) {
         header('Location: ?action=dashboard&error=Error deleting user: ' . $e->getMessage());
@@ -2722,7 +2722,7 @@ function handleBulkDelete() {
             $stmt->execute($selectedIds);
 
             $deletedCount = count($selectedIds);
-            header("Location: ?action=dashboard&success=$deletedCount user(s) deleted successfully");
+            header("Location: ?action=dashboard&page=all_users&success=$deletedCount user(s) deleted successfully");
         } elseif ($type === 'recordings') {
             // First, get the filenames to delete the physical files
             $stmt = $pdo->prepare("SELECT imgName FROM web_images WHERE ID IN ($placeholders)");
@@ -2762,7 +2762,8 @@ function handleBulkDelete() {
             $stmt->execute($selectedIds);
 
             $deletedCount = count($selectedIds);
-            header("Location: ?action=dashboard&success=$deletedCount recording(s) deleted successfully");
+            // Stay on the same page (recordings tab) after deletion
+            header("Location: ?action=dashboard&page=recordings&success=$deletedCount recording(s) deleted successfully");
         } else {
             header('Location: ?action=dashboard&error=Invalid type specified');
             exit;
