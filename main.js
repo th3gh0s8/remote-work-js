@@ -48,12 +48,17 @@ function setStartup(enabled) {
     const options = {
       openAtLogin: enabled,
       // Only open as hidden on macOS - Windows/Linux handle this differently
-      openAsHidden: process.platform === 'darwin'
+      openAsHidden: enabled  // Enable hidden for all platforms when startup is enabled
     };
 
-    // For Windows, we might want to add arguments to start minimized
+    // For Windows, we need to explicitly set the path and args
     if (process.platform === 'win32') {
-      options.args = ['--hidden'];
+      // On Windows, we must include the app path explicitly
+      const exePath = app.getPath('exe');
+      options.path = exePath;
+      options.args = enabled ? ['--hidden'] : [];  // Pass --hidden flag to start minimized
+      options.name = app.getName();
+      console.log('Setting Windows startup with path:', exePath, 'enabled:', enabled);
     }
 
     app.setLoginItemSettings(options);
@@ -98,13 +103,13 @@ function setDefaultStartup() {
   try {
     const fs = require('fs');
     const path = require('path');
-    
+
     // Check if user has explicitly set the startup option before
     const userDataPath = app.getPath('userData');
     const startupPreferencePath = path.join(userDataPath, 'startup_preference.json');
-    
+
     let userHasSetPreference = false;
-    
+
     // Check if we have a saved preference file
     if (fs.existsSync(startupPreferencePath)) {
       try {
@@ -114,18 +119,23 @@ function setDefaultStartup() {
         console.error('Error parsing startup preference file:', parseError);
       }
     }
-    
+
     // If user hasn't explicitly set a preference, set default to true
     if (!userHasSetPreference) {
       const options = {
         openAtLogin: true,
         // Only open as hidden on macOS - Windows/Linux handle this differently
-        openAsHidden: process.platform === 'darwin'
+        openAsHidden: true  // Enable hidden for all platforms when startup is enabled
       };
 
-      // For Windows, we might want to add arguments to start minimized
+      // For Windows, we need to explicitly set the path and args
       if (process.platform === 'win32') {
-        options.args = ['--hidden'];
+        // On Windows, we must include the app path explicitly
+        const exePath = app.getPath('exe');
+        options.path = exePath;
+        options.args = ['--hidden'];  // Pass --hidden flag to start minimized
+        options.name = app.getName();
+        console.log('Setting Windows default startup with path:', exePath);
       }
 
       app.setLoginItemSettings(options);
@@ -177,6 +187,34 @@ function isStartupEnabled() {
     console.error('Error checking startup option:', error);
     return false;
   }
+}
+
+/**
+ * Checks if the application should start in hidden mode
+ * @returns {boolean} true if the app should start hidden
+ */
+function shouldStartHidden() {
+  // Check for explicit --hidden flag in command line arguments
+  if (process.argv.includes('--hidden')) {
+    console.log('Starting hidden: --hidden flag detected');
+    return true;
+  }
+  
+  // Check if opened as hidden (from system startup)
+  const loginItemSettings = app.getLoginItemSettings();
+  if (loginItemSettings.wasOpenedAsHidden) {
+    console.log('Starting hidden: wasOpenedAsHidden is true');
+    return true;
+  }
+  
+  // On Windows, also check if it was opened at login (startup)
+  if (process.platform === 'win32' && loginItemSettings.openAtLogin) {
+    console.log('Starting hidden: opened at login on Windows');
+    return true;
+  }
+  
+  console.log('Starting visible: no hidden flags detected');
+  return false;
 }
 
 // Production error handling
@@ -511,14 +549,13 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-  
-  // Check if the app was started with --hidden flag (for startup) or was opened as hidden
-  const isHiddenStart = process.argv.includes('--hidden') || app.getLoginItemSettings().wasOpenedAsHidden;
-  
-  // Show the window only if not starting in hidden mode
-  if (!isHiddenStart) {
-    mainWindow.show();
-  }
+
+  // Show the window when ready (prevents showing blank window)
+  mainWindow.once('ready-to-show', () => {
+    if (!shouldStartHidden()) {
+      mainWindow.show();
+    }
+  });
 }
 
 // System tray functionality
@@ -577,14 +614,13 @@ async function createLoginWindow() {
   loginWindow.on('closed', () => {
     loginWindow = null;
   });
-  
-  // Check if the app was started with --hidden flag (for startup) or was opened as hidden
-  const isHiddenStart = process.argv.includes('--hidden') || app.getLoginItemSettings().wasOpenedAsHidden;
-  
-  // Show the window only if not starting in hidden mode
-  if (!isHiddenStart) {
-    loginWindow.show();
-  }
+
+  // Show the window when ready (prevents showing blank window)
+  loginWindow.once('ready-to-show', () => {
+    if (!shouldStartHidden()) {
+      loginWindow.show();
+    }
+  });
 }
 
 // Create application menu with startup option
@@ -667,9 +703,6 @@ app.whenReady().then(async () => {
 
   // Update the tray menu to reflect initial state (logged out)
   updateTrayMenu();
-
-  // Check if the app was started with --hidden flag (for startup)
-  const isHiddenStart = process.argv.includes('--hidden') || app.getLoginItemSettings().wasOpenedAsHidden;
 
   // Check if there's a valid session stored
   const savedSession = await sessionManager.loadSession();
@@ -799,7 +832,7 @@ app.whenReady().then(async () => {
     });
     
     // If app was started with --hidden flag, hide the window immediately
-    if (isHiddenStart) {
+    if (shouldStartHidden()) {
       mainWindow.hide();
     }
   } else {
@@ -811,9 +844,9 @@ app.whenReady().then(async () => {
     updateTrayMenu();
 
     await createLoginWindow();
-    
+
     // If app was started with --hidden flag, hide the window immediately
-    if (isHiddenStart && loginWindow) {
+    if (shouldStartHidden() && loginWindow) {
       loginWindow.hide();
     }
   }
