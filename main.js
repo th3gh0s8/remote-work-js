@@ -1,5 +1,33 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, net, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
+
+// Simple JSON store for persistent settings (avoids ES module issues)
+const store = {
+  _path: path.join(app.getPath('userData'), 'config.json'),
+  _data: null,
+  _load() {
+    if (this._data) return this._data;
+    try {
+      this._data = JSON.parse(fs.readFileSync(this._path, 'utf8'));
+    } catch {
+      this._data = { startupPromptShown: false, startOnLogin: true };
+    }
+    return this._data;
+  },
+  _save() {
+    fs.writeFileSync(this._path, JSON.stringify(this._data, null, 2));
+  },
+  get(key, defaultValue) {
+    const data = this._load();
+    return key in data ? data[key] : defaultValue;
+  },
+  set(key, value) {
+    const data = this._load();
+    data[key] = value;
+    this._save();
+  }
+};
 
 // Ensure only one instance of the application runs
 const gotTheLock = app.requestSingleInstanceLock();
@@ -36,157 +64,70 @@ const SessionManager = require('./session_manager');
 // Startup functionality
 const isDevelopment = config.NODE_ENV === 'development';
 
-// Function to set login item settings (startup)
+/**
+ * Configures Windows login item settings with explicit path to avoid Electron welcome screen
+ * @param {boolean} enabled - Whether to enable startup on login
+ */
 function setStartup(enabled) {
   if (isDevelopment) {
-    // Don't enable startup in development mode
     console.log('Startup setting ignored in development mode');
     return;
   }
 
   try {
-    // For Windows, use app.setLoginItemSettings with explicit path
     if (process.platform === 'win32') {
-      const exePath = app.getPath('exe');
       app.setLoginItemSettings({
         openAtLogin: enabled,
         openAsHidden: enabled,
-        path: exePath,
+        path: app.getPath('exe'),
         args: enabled ? ['--hidden'] : [],
-        name: app.getName() // Uses package.json "name" field for registry entry
+        name: app.getName()
       });
-      console.log('Setting Windows startup with path:', exePath, 'enabled:', enabled);
+      console.log('Windows startup set:', { enabled, path: app.getPath('exe') });
     } else {
-      // macOS/Linux
       app.setLoginItemSettings({
         openAtLogin: enabled,
         openAsHidden: enabled
       });
     }
-    
-    // Small delay to ensure the setting takes effect before checking
-    setTimeout(() => {
-      console.log(`Startup setting updated: ${enabled}, current status:`, app.getLoginItemSettings().openAtLogin);
-    }, 50);
 
-    // Save user preference to indicate they've explicitly set it
-    try {
-      const fs = require('fs');
-      const path = require('path');
-
-      const userDataPath = app.getPath('userData');
-      const startupPreferencePath = path.join(userDataPath, 'startup_preference.json');
-
-      const prefData = {
-        userSet: true,   // User has explicitly set it
-        enabled: enabled // Their chosen setting
-      };
-      fs.writeFileSync(startupPreferencePath, JSON.stringify(prefData));
-      
-      // Refresh the menu to update the checkbox state
-      setTimeout(createAppMenu, 100);
-    } catch (saveError) {
-      console.error('Error saving startup preference:', saveError);
-    }
+    store.set('startOnLogin', enabled);
+    createAppMenu();
   } catch (error) {
     console.error('Error setting startup option:', error);
   }
 }
 
-// Function to ensure startup is enabled by default on first run or if no explicit preference
-function setDefaultStartup() {
-  if (isDevelopment) {
-    // Don't enable startup in development mode
-    console.log('Startup setting ignored in development mode');
+/**
+ * Shows first-launch dialog asking user if they want the app to start on login
+ */
+async function showStartupPrompt() {
+  if (isDevelopment || store.get('startupPromptShown')) {
     return;
   }
 
-  try {
-    const fs = require('fs');
-    const path = require('path');
+  const { response } = await dialog.showMessageBox({
+    type: 'question',
+    buttons: ['Yes', 'No'],
+    defaultId: 0,
+    title: 'Start on Login',
+    message: `Start ${app.getName()} when you log in?`,
+    detail: 'You can change this setting later from the Application menu.',
+    checkboxLabel: 'Remember my choice',
+    checkboxChecked: true
+  });
 
-    // Check if user has explicitly set the startup option before
-    const userDataPath = app.getPath('userData');
-    const startupPreferencePath = path.join(userDataPath, 'startup_preference.json');
-
-    let userHasSetPreference = false;
-
-    // Check if we have a saved preference file
-    if (fs.existsSync(startupPreferencePath)) {
-      try {
-        const prefData = JSON.parse(fs.readFileSync(startupPreferencePath, 'utf8'));
-        userHasSetPreference = prefData.userSet || false;
-      } catch (parseError) {
-        console.error('Error parsing startup preference file:', parseError);
-      }
-    }
-
-    // If user hasn't explicitly set a preference, set default to true
-    if (!userHasSetPreference) {
-      if (process.platform === 'win32') {
-        const exePath = app.getPath('exe');
-        app.setLoginItemSettings({
-          openAtLogin: true,
-          openAsHidden: true,
-          path: exePath,
-          args: ['--hidden'],
-          name: app.getName()
-        });
-        console.log('Setting Windows default startup with path:', exePath);
-      } else {
-        app.setLoginItemSettings({
-          openAtLogin: true,
-          openAsHidden: true
-        });
-      }
-      console.log('Startup setting enabled by default');
-
-      // Save that we've set the default
-      const prefData = {
-        userSet: false,  // User hasn't explicitly set it yet
-        enabled: true    // But we've defaulted to true
-      };
-      fs.writeFileSync(startupPreferencePath, JSON.stringify(prefData));
-    } else {
-      console.log('User has set preference, keeping current setting');
-    }
-  } catch (error) {
-    console.error('Error setting default startup option:', error);
-  }
+  store.set('startupPromptShown', true);
+  store.set('startOnLogin', response === 0);
+  setStartup(response === 0);
 }
 
-// Function to check if app is set to start on login
+/**
+ * Returns whether startup on login is enabled
+ * @returns {boolean}
+ */
 function isStartupEnabled() {
-  try {
-    const settings = app.getLoginItemSettings();
-    console.log('Current startup status:', settings.openAtLogin);
-    
-    // Check if we have a saved preference that might override the system setting
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      
-      const userDataPath = app.getPath('userData');
-      const startupPreferencePath = path.join(userDataPath, 'startup_preference.json');
-      
-      if (fs.existsSync(startupPreferencePath)) {
-        const prefData = JSON.parse(fs.readFileSync(startupPreferencePath, 'utf8'));
-        if (prefData.userSet) {
-          // If user has explicitly set it, return that value
-          console.log('Using user preference for startup status:', prefData.enabled);
-          return prefData.enabled;
-        }
-      }
-    } catch (prefError) {
-      console.error('Error reading startup preference:', prefError);
-    }
-    
-    // Otherwise return the system setting
-    return settings.openAtLogin;
-  } catch (error) {
-    console.error('Error checking startup option:', error);
-    return false;
-  }
+  return store.get('startOnLogin', false);
 }
 
 /**
@@ -666,14 +607,11 @@ function createAppMenu() {
 }
 
 app.whenReady().then(async () => {
+  // Show first-launch startup prompt (if not shown before)
+  await showStartupPrompt();
+
   // Create the application menu
   createAppMenu();
-
-  // Set default startup to true if not already configured
-  setDefaultStartup();
-
-  // Refresh the menu after setting the default to ensure correct state display
-  setTimeout(createAppMenu, 100);
 
   // Initialize session manager after app is ready
   sessionManager = new SessionManager();
@@ -1847,6 +1785,16 @@ async function getNetworkUsage() {
 // IPC handler to get current network usage
 ipcMain.handle('get-network-usage', async (event) => {
   return getNetworkUsage();
+});
+
+// IPC handlers for startup on login setting
+ipcMain.handle('set-startup-on-login', (event, enabled) => {
+  setStartup(enabled);
+  return { success: true, enabled };
+});
+
+ipcMain.handle('get-startup-on-login', () => {
+  return isStartupEnabled();
 });
 
 // Function to start network usage monitoring
