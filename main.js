@@ -45,23 +45,24 @@ function setStartup(enabled) {
   }
 
   try {
-    const options = {
-      openAtLogin: enabled,
-      // Only open as hidden on macOS - Windows/Linux handle this differently
-      openAsHidden: enabled  // Enable hidden for all platforms when startup is enabled
-    };
-
-    // For Windows, we need to explicitly set the path and args
+    // For Windows, use app.setLoginItemSettings with explicit path
     if (process.platform === 'win32') {
-      // On Windows, we must include the app path explicitly
       const exePath = app.getPath('exe');
-      options.path = exePath;
-      options.args = enabled ? ['--hidden'] : [];  // Pass --hidden flag to start minimized
-      options.name = app.getName();
+      app.setLoginItemSettings({
+        openAtLogin: enabled,
+        openAsHidden: enabled,
+        path: exePath,
+        args: enabled ? ['--hidden'] : [],
+        name: app.getName() // Uses package.json "name" field for registry entry
+      });
       console.log('Setting Windows startup with path:', exePath, 'enabled:', enabled);
+    } else {
+      // macOS/Linux
+      app.setLoginItemSettings({
+        openAtLogin: enabled,
+        openAsHidden: enabled
+      });
     }
-
-    app.setLoginItemSettings(options);
     
     // Small delay to ensure the setting takes effect before checking
     setTimeout(() => {
@@ -122,25 +123,24 @@ function setDefaultStartup() {
 
     // If user hasn't explicitly set a preference, set default to true
     if (!userHasSetPreference) {
-      const options = {
-        openAtLogin: true,
-        // Only open as hidden on macOS - Windows/Linux handle this differently
-        openAsHidden: true  // Enable hidden for all platforms when startup is enabled
-      };
-
-      // For Windows, we need to explicitly set the path and args
       if (process.platform === 'win32') {
-        // On Windows, we must include the app path explicitly
         const exePath = app.getPath('exe');
-        options.path = exePath;
-        options.args = ['--hidden'];  // Pass --hidden flag to start minimized
-        options.name = app.getName();
+        app.setLoginItemSettings({
+          openAtLogin: true,
+          openAsHidden: true,
+          path: exePath,
+          args: ['--hidden'],
+          name: app.getName()
+        });
         console.log('Setting Windows default startup with path:', exePath);
+      } else {
+        app.setLoginItemSettings({
+          openAtLogin: true,
+          openAsHidden: true
+        });
       }
-
-      app.setLoginItemSettings(options);
       console.log('Startup setting enabled by default');
-      
+
       // Save that we've set the default
       const prefData = {
         userSet: false,  // User hasn't explicitly set it yet

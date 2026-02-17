@@ -1,5 +1,5 @@
 {
-  "name": "xploree",
+  "name": "xployee",
   "version": "1.0.0",
   "description": "employee work time tracker and screen recorder",
   "main": "main.js",
@@ -47,7 +47,7 @@
     "systeminformation": "^5.30.3"
   },
   "build": {
-    "appId": "com.powersoft.xploree",
+    "appId": "com.powersoft.xployee",
     "productName": "XPloyee",
     "copyright": "Copyright © 2024 Powersoft",
     "directories": {
