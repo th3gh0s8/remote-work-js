@@ -318,7 +318,8 @@ function createTrayMenu(isLoggedIn) {
             mainWindow.close();
           }
 
-          await createLoginWindow();
+          // Force show the login window (user action from tray menu)
+          await createLoginWindow(true);
         }
       },
       { type: 'separator' },
@@ -354,7 +355,8 @@ function createTrayMenu(isLoggedIn) {
             mainWindow.close();
           }
 
-          await createLoginWindow();
+          // Force show the login window (user action from tray menu)
+          await createLoginWindow(true);
         }
       }
     );
@@ -381,7 +383,8 @@ function createTrayMenu(isLoggedIn) {
             mainWindow.close();
           }
 
-          await createLoginWindow();
+          // Force show the login window (user action from tray menu)
+          await createLoginWindow(true);
         }
       }
     );
@@ -507,8 +510,9 @@ let tray = null;
  *
  * The window is configured for the application's login UI, loads "login.html",
  * and clears the module-level `loginWindow` reference when closed.
+ * @param {boolean} forceShow - If true, always show the window (used after manual logout)
  */
-async function createLoginWindow() {
+async function createLoginWindow(forceShow = false) {
   // Check if login window already exists and is open
   if (loginWindow && !loginWindow.isDestroyed()) {
     // If login window exists, just bring it to focus
@@ -558,7 +562,9 @@ async function createLoginWindow() {
 
   // Show the window when ready (prevents showing blank window)
   loginWindow.once('ready-to-show', () => {
-    if (!shouldStartHidden()) {
+    // Always show if forceShow is true (e.g., after manual logout)
+    // Otherwise, respect startup hidden settings
+    if (forceShow || !shouldStartHidden()) {
       loginWindow.show();
     }
   });
@@ -924,7 +930,8 @@ ipcMain.handle('logout-request', async (event) => {
       mainWindow.close();
     }
 
-    await createLoginWindow();
+    // Force show the login window (user manually logged out, so they should see the login screen)
+    await createLoginWindow(true);
 
     // Process any pending video uploads in background after logout
     processPendingVideoUploads();
