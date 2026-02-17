@@ -6,5 +6,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSources: () => ipcRenderer.invoke('get-sources'),
   saveRecording: (buffer, filename) => ipcRenderer.invoke('save-recording', buffer, filename),
   onWindowShown: (callback) => ipcRenderer.on('window-shown', callback),
-  onWindowHidden: (callback) => ipcRenderer.on('window-hidden', callback)
+  onWindowHidden: (callback) => ipcRenderer.on('window-hidden', callback),
+  // Startup on login settings
+  setStartupOnLogin: (enabled) => ipcRenderer.invoke('set-startup-on-login', enabled),
+  getStartupOnLogin: () => ipcRenderer.invoke('get-startup-on-login')
 });
