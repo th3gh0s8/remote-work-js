@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, net } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, net, dialog } = require('electron');
 const path = require('path');
 
 // Ensure only one instance of the application runs
@@ -32,6 +32,190 @@ try {
 const DatabaseConnection = require('./db_connection');
 const config = require('./config.js');
 const SessionManager = require('./session_manager');
+
+// Startup functionality
+const isDevelopment = config.NODE_ENV === 'development';
+
+// Function to set login item settings (startup)
+function setStartup(enabled) {
+  if (isDevelopment) {
+    // Don't enable startup in development mode
+    console.log('Startup setting ignored in development mode');
+    return;
+  }
+
+  try {
+    // For Windows, use app.setLoginItemSettings with explicit path
+    if (process.platform === 'win32') {
+      const exePath = app.getPath('exe');
+      app.setLoginItemSettings({
+        openAtLogin: enabled,
+        openAsHidden: enabled,
+        path: exePath,
+        args: enabled ? ['--hidden'] : [],
+        name: app.getName() // Uses package.json "name" field for registry entry
+      });
+      console.log('Setting Windows startup with path:', exePath, 'enabled:', enabled);
+    } else {
+      // macOS/Linux
+      app.setLoginItemSettings({
+        openAtLogin: enabled,
+        openAsHidden: enabled
+      });
+    }
+    
+    // Small delay to ensure the setting takes effect before checking
+    setTimeout(() => {
+      console.log(`Startup setting updated: ${enabled}, current status:`, app.getLoginItemSettings().openAtLogin);
+    }, 50);
+
+    // Save user preference to indicate they've explicitly set it
+    try {
+      const fs = require('fs');
+      const path = require('path');
+
+      const userDataPath = app.getPath('userData');
+      const startupPreferencePath = path.join(userDataPath, 'startup_preference.json');
+
+      const prefData = {
+        userSet: true,   // User has explicitly set it
+        enabled: enabled // Their chosen setting
+      };
+      fs.writeFileSync(startupPreferencePath, JSON.stringify(prefData));
+      
+      // Refresh the menu to update the checkbox state
+      setTimeout(createAppMenu, 100);
+    } catch (saveError) {
+      console.error('Error saving startup preference:', saveError);
+    }
+  } catch (error) {
+    console.error('Error setting startup option:', error);
+  }
+}
+
+// Function to ensure startup is enabled by default on first run or if no explicit preference
+function setDefaultStartup() {
+  if (isDevelopment) {
+    // Don't enable startup in development mode
+    console.log('Startup setting ignored in development mode');
+    return;
+  }
+
+  try {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Check if user has explicitly set the startup option before
+    const userDataPath = app.getPath('userData');
+    const startupPreferencePath = path.join(userDataPath, 'startup_preference.json');
+
+    let userHasSetPreference = false;
+
+    // Check if we have a saved preference file
+    if (fs.existsSync(startupPreferencePath)) {
+      try {
+        const prefData = JSON.parse(fs.readFileSync(startupPreferencePath, 'utf8'));
+        userHasSetPreference = prefData.userSet || false;
+      } catch (parseError) {
+        console.error('Error parsing startup preference file:', parseError);
+      }
+    }
+
+    // If user hasn't explicitly set a preference, set default to true
+    if (!userHasSetPreference) {
+      if (process.platform === 'win32') {
+        const exePath = app.getPath('exe');
+        app.setLoginItemSettings({
+          openAtLogin: true,
+          openAsHidden: true,
+          path: exePath,
+          args: ['--hidden'],
+          name: app.getName()
+        });
+        console.log('Setting Windows default startup with path:', exePath);
+      } else {
+        app.setLoginItemSettings({
+          openAtLogin: true,
+          openAsHidden: true
+        });
+      }
+      console.log('Startup setting enabled by default');
+
+      // Save that we've set the default
+      const prefData = {
+        userSet: false,  // User hasn't explicitly set it yet
+        enabled: true    // But we've defaulted to true
+      };
+      fs.writeFileSync(startupPreferencePath, JSON.stringify(prefData));
+    } else {
+      console.log('User has set preference, keeping current setting');
+    }
+  } catch (error) {
+    console.error('Error setting default startup option:', error);
+  }
+}
+
+// Function to check if app is set to start on login
+function isStartupEnabled() {
+  try {
+    const settings = app.getLoginItemSettings();
+    console.log('Current startup status:', settings.openAtLogin);
+    
+    // Check if we have a saved preference that might override the system setting
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      
+      const userDataPath = app.getPath('userData');
+      const startupPreferencePath = path.join(userDataPath, 'startup_preference.json');
+      
+      if (fs.existsSync(startupPreferencePath)) {
+        const prefData = JSON.parse(fs.readFileSync(startupPreferencePath, 'utf8'));
+        if (prefData.userSet) {
+          // If user has explicitly set it, return that value
+          console.log('Using user preference for startup status:', prefData.enabled);
+          return prefData.enabled;
+        }
+      }
+    } catch (prefError) {
+      console.error('Error reading startup preference:', prefError);
+    }
+    
+    // Otherwise return the system setting
+    return settings.openAtLogin;
+  } catch (error) {
+    console.error('Error checking startup option:', error);
+    return false;
+  }
+}
+
+/**
+ * Checks if the application should start in hidden mode
+ * @returns {boolean} true if the app should start hidden
+ */
+function shouldStartHidden() {
+  // Check for explicit --hidden flag in command line arguments
+  if (process.argv.includes('--hidden')) {
+    console.log('Starting hidden: --hidden flag detected');
+    return true;
+  }
+  
+  // Check if opened as hidden (from system startup)
+  const loginItemSettings = app.getLoginItemSettings();
+  if (loginItemSettings.wasOpenedAsHidden) {
+    console.log('Starting hidden: wasOpenedAsHidden is true');
+    return true;
+  }
+  
+  // On Windows, also check if it was opened at login (startup)
+  if (process.platform === 'win32' && loginItemSettings.openAtLogin) {
+    console.log('Starting hidden: opened at login on Windows');
+    return true;
+  }
+  
+  console.log('Starting visible: no hidden flags detected');
+  return false;
+}
 
 // Production error handling
 process.on('uncaughtException', (error) => {
@@ -324,7 +508,8 @@ function createWindow() {
     webSecurity: false, // Allow mixed content for screen capture
     // Enable screen capture
     alwaysOnTop: false,
-    fullscreenable: true
+    fullscreenable: true,
+    show: false // Don't show the window immediately - we'll control visibility based on startup settings
   });
 
   // Configure session to allow screen capture
@@ -364,6 +549,13 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Show the window when ready (prevents showing blank window)
+  mainWindow.once('ready-to-show', () => {
+    if (!shouldStartHidden()) {
+      mainWindow.show();
+    }
+  });
 }
 
 // System tray functionality
@@ -398,7 +590,8 @@ async function createLoginWindow() {
       contextIsolation: false,
       enableRemoteModule: true
     },
-    icon: path.join(__dirname, 'assets/icon.png')
+    icon: path.join(__dirname, 'assets/icon.png'),
+    show: false // Don't show the window immediately - we'll control visibility based on startup settings
   });
 
   loginWindow.loadFile('login.html');
@@ -421,9 +614,67 @@ async function createLoginWindow() {
   loginWindow.on('closed', () => {
     loginWindow = null;
   });
+
+  // Show the window when ready (prevents showing blank window)
+  loginWindow.once('ready-to-show', () => {
+    if (!shouldStartHidden()) {
+      loginWindow.show();
+    }
+  });
+}
+
+// Create application menu with startup option
+function createAppMenu() {
+  // Get current startup status
+  const isStartupEnabledValue = isStartupEnabled();
+  console.log('Creating menu with startup status:', isStartupEnabledValue);
+
+  const template = [
+    {
+      label: 'Application',
+      submenu: [
+        {
+          label: 'Toggle Start on Boot',
+          type: 'checkbox',
+          checked: isStartupEnabledValue,
+          click: (menuItem) => {
+            setStartup(menuItem.checked);
+            // Refresh the menu to update the checkbox state
+            setTimeout(createAppMenu, 100);
+          }
+        },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
 }
 
 app.whenReady().then(async () => {
+  // Create the application menu
+  createAppMenu();
+
+  // Set default startup to true if not already configured
+  setDefaultStartup();
+
+  // Refresh the menu after setting the default to ensure correct state display
+  setTimeout(createAppMenu, 100);
+
   // Initialize session manager after app is ready
   sessionManager = new SessionManager();
 
@@ -579,6 +830,11 @@ app.whenReady().then(async () => {
         updateTrayMenu(); // Use the existing updateTrayMenu function which properly builds the menu
       }
     });
+    
+    // If app was started with --hidden flag, hide the window immediately
+    if (shouldStartHidden()) {
+      mainWindow.hide();
+    }
   } else {
     // No valid session, show login window first
     // Update tray tooltip to indicate logged out status
@@ -588,6 +844,11 @@ app.whenReady().then(async () => {
     updateTrayMenu();
 
     await createLoginWindow();
+
+    // If app was started with --hidden flag, hide the window immediately
+    if (shouldStartHidden() && loginWindow) {
+      loginWindow.hide();
+    }
   }
 });
 
@@ -1620,6 +1881,27 @@ ipcMain.on('request-network-usage', (event) => {
 ipcMain.on('database-operation', (event, data) => {
   totalBytesUploaded += data.uploadSize || 0;
   totalBytesDownloaded += data.downloadSize || 0;
+});
+
+// IPC handlers for startup functionality
+ipcMain.handle('set-startup', async (event, enabled) => {
+  try {
+    setStartup(enabled);
+    return { success: true, enabled };
+  } catch (error) {
+    console.error('Error setting startup:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-startup-status', async (event) => {
+  try {
+    const isEnabled = isStartupEnabled();
+    return { success: true, enabled: isEnabled };
+  } catch (error) {
+    console.error('Error getting startup status:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 app.on('window-all-closed', async () => {
