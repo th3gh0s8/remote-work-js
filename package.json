@@ -65,7 +65,17 @@
       "!*.yml",
       "!*.yaml",
       "!*.lock",
-      "!dist/**/*"
+      "!dist/**/*",
+      "!admin/**/*",
+      "!uploads/**/*",
+      "!captures/**/*",
+      "!chunks/**/*",
+      "!*.php",
+      "!db.php",
+      "!db_edit.php",
+      "!db_test.php",
+      "!upload.php",
+      "!debug_upload.php"
     ],
     "extraResources": [
       {

@@ -78,16 +78,16 @@ function setStartup(enabled) {
     if (process.platform === 'win32') {
       app.setLoginItemSettings({
         openAtLogin: enabled,
-        openAsHidden: enabled,
+        openAsHidden: false, // Always start visible
         path: app.getPath('exe'),
-        args: enabled ? ['--hidden'] : [],
+        args: [], // No hidden argument
         name: app.getName()
       });
       console.log('Windows startup set:', { enabled, path: app.getPath('exe') });
     } else {
       app.setLoginItemSettings({
         openAtLogin: enabled,
-        openAsHidden: enabled
+        openAsHidden: false // Always start visible
       });
     }
 
@@ -132,29 +132,11 @@ function isStartupEnabled() {
 
 /**
  * Checks if the application should start in hidden mode
- * @returns {boolean} true if the app should start hidden
+ * @returns {boolean} Always returns false - app always starts visible
  */
 function shouldStartHidden() {
-  // Check for explicit --hidden flag in command line arguments
-  if (process.argv.includes('--hidden')) {
-    console.log('Starting hidden: --hidden flag detected');
-    return true;
-  }
-  
-  // Check if opened as hidden (from system startup)
-  const loginItemSettings = app.getLoginItemSettings();
-  if (loginItemSettings.wasOpenedAsHidden) {
-    console.log('Starting hidden: wasOpenedAsHidden is true');
-    return true;
-  }
-  
-  // On Windows, also check if it was opened at login (startup)
-  if (process.platform === 'win32' && loginItemSettings.openAtLogin) {
-    console.log('Starting hidden: opened at login on Windows');
-    return true;
-  }
-  
-  console.log('Starting visible: no hidden flags detected');
+  // App always starts visible for user visibility
+  console.log('Starting visible: app configured to always show on startup');
   return false;
 }
 
