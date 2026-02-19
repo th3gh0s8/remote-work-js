@@ -13,6 +13,15 @@ app.commandLine.appendSwitch('enable-zero-copy', 'true');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512');
 // Optimize for performance
 app.commandLine.appendSwitch('disable-features', 'TranslateUI,MediaRouter');
+// Additional optimizations for better performance
+app.commandLine.appendSwitch('ignore-gpu-blacklist', 'true');
+app.commandLine.appendSwitch('enable-native-gpu-memory-buffers', 'true');
+app.commandLine.appendSwitch('gpu-memory-buffer-video-capture', 'true');
+// Reduce compositor work
+app.commandLine.appendSwitch('disable-frame-rate-limit', 'true');
+// Optimize renderer performance
+app.commandLine.appendSwitch('enable-accelerated-video-decode', 'true');
+app.commandLine.appendSwitch('enable-accelerated-video-encode', 'true');
 
 // Simple JSON store for persistent settings (avoids ES module issues)
 const store = {
@@ -1896,7 +1905,7 @@ function startHeartbeat() {
 
   console.log('Starting heartbeat for user:', loggedInUser?.ID);
 
-  // Send heartbeat every 15 seconds for faster response
+  // Send heartbeat every 30 seconds (optimized from 15s to reduce network/database load)
   heartbeatInterval = setInterval(async () => {
     if (loggedInUser) {
       try {
@@ -1911,7 +1920,7 @@ function startHeartbeat() {
         console.error('Heartbeat error:', error);
       }
     }
-  }, 15000); // 15 seconds
+  }, 30000); // 30 seconds (optimized)
 }
 
 // Function to stop heartbeat (called on logout/quit)

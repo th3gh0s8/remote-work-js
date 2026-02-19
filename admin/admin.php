@@ -300,7 +300,7 @@ function showDashboard() {
                     WHERE ua3.salesrepTb = s.ID
                     AND ua3.activity_type IN ('logout', 'check-out', 'quit')
                 ), '1900-01-01')
-                AND ua2.rDateTime >= DATE_SUB(NOW(), INTERVAL 30 SECOND)
+                AND ua2.rDateTime >= DATE_SUB(NOW(), INTERVAL 45 SECOND)
             ) THEN 'online'
             ELSE 'offline'
         END = ?";
@@ -338,7 +338,7 @@ function showDashboard() {
                            WHERE ua3.salesrepTb = s.ID
                            AND ua3.activity_type IN ('logout', 'check-out', 'quit')
                        ), '1900-01-01')
-                       AND ua2.rDateTime >= DATE_SUB(NOW(), INTERVAL 30 SECOND)
+                       AND ua2.rDateTime >= DATE_SUB(NOW(), INTERVAL 45 SECOND)
                    ) THEN 'online'
                    ELSE 'offline'
                END as current_status
@@ -555,7 +555,7 @@ function showDashboard() {
                         WHERE ua2.salesrepTb = s.ID
                         AND ua2.activity_type IN ('logout', 'check-out', 'quit')
                     ), '1900-01-01')
-                    AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 30 SECOND)
+                    AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 45 SECOND)
                 ) THEN 'online'
                 ELSE 'offline'
             END = ? ";
@@ -592,7 +592,7 @@ function showDashboard() {
                            WHERE ua2.salesrepTb = s.ID
                            AND ua2.activity_type IN ('logout', 'check-out', 'quit')
                        ), '1900-01-01')
-                       AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 30 SECOND)
+                       AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 45 SECOND)
                    ) THEN 'online'
                    ELSE 'offline'
                END as current_status,
@@ -1130,7 +1130,7 @@ function showDashboard() {
             <div style="display: flex; gap: 15px; align-items: center;">
                 <div id="refresh-indicator" style="font-size: 12px; color: #888; display: flex; align-items: center; gap: 5px;">
                     <span style="display: inline-block; width: 8px; height: 8px; background: #4CAF50; border-radius: 50%; animation: pulse 2s infinite;"></span>
-                    Live updating every 10s
+                    Live updating every 30s
                 </div>
                 <a href="?action=logout" class="logout-btn">Logout</a>
             </div>
@@ -1636,8 +1636,8 @@ function showDashboard() {
                     .catch(err => console.error('Status update failed:', err));
             }
             
-            // Update every 10 seconds for real-time feel
-            setInterval(updateUserStatuses, 10000);
+            // Update every 30 seconds (optimized from 10s to reduce server load)
+            setInterval(updateUserStatuses, 30000);
             
             // Also do full refresh every 5 minutes to catch any other changes
             setInterval(function() {
@@ -6159,7 +6159,7 @@ function getUserStatuses() {
                                WHERE ua2.salesrepTb = s.ID
                                AND ua2.activity_type IN ('logout', 'check-out', 'quit')
                            ), '1900-01-01')
-                           AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 30 SECOND)
+                           AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 45 SECOND)
                        ) THEN 'online'
                        ELSE 'offline'
                    END as current_status
