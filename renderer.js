@@ -12,7 +12,6 @@ let recordedChunks = [];
 let recordingInterval = null;
 let segmentStartTime = null;
 let segmentCounter = 1;
-const SEGMENT_DURATION = 60 * 1000; // 1 minute in milliseconds
 
 // Store user information
 let currentUser = null;
@@ -34,12 +33,70 @@ let globalStream = null;
 let globalOptions = null;
 let globalStatusText = null;
 
+// OPTIMIZED: Increased segment duration to reduce CPU usage from file operations
+const SEGMENT_DURATION = 120 * 1000; // 2 minutes (increased from 1 minute)
+
 // Performance optimization: Only log in development mode
-// Detect development mode from Electron
 const isDevelopment = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development';
 const log = isDevelopment ? console.log.bind(console) : () => {};
 const warn = isDevelopment ? console.warn.bind(console) : () => {};
 const error = isDevelopment ? console.error.bind(console) : () => {};
+
+// IPC Listener for user-info - Set up IMMEDIATELY before DOMContentLoaded
+// This ensures we don't miss the message if it arrives early
+ipcRenderer.on('user-info', (event, user) => {
+  currentUser = user;
+  console.log('=== USER-INFO RECEIVED ===');
+  console.log('User data:', user);
+
+  // Update UI to show logged in user as soon as DOM is ready
+  const updateLoggedInUser = () => {
+    const loggedInUserElement = document.getElementById('logged-in-user');
+    console.log('Looking for logged-in-user element, found:', !!loggedInUserElement);
+    
+    if (loggedInUserElement) {
+      const userName = user.Name || user.RepID || 'Unknown User';
+      loggedInUserElement.textContent = `👤 ${userName}`;
+      loggedInUserElement.title = `User ID: ${user.RepID || 'N/A'}`;
+      loggedInUserElement.style.color = 'white'; // Ensure it's visible
+      loggedInUserElement.style.display = 'inline'; // Ensure it's visible
+      console.log('✅ Updated logged-in-user to:', userName);
+      console.log('Element textContent:', loggedInUserElement.textContent);
+    } else {
+      console.log('❌ logged-in-user element not found, will retry...');
+      // Retry after a short delay
+      setTimeout(updateLoggedInUser, 100);
+    }
+  };
+
+  // Try to update immediately, or wait for DOM if not ready
+  if (document.readyState === 'loading') {
+    console.log('DOM is loading, waiting for DOMContentLoaded...');
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('DOMContentLoaded fired, updating logged-in-user...');
+      updateLoggedInUser();
+    });
+  } else {
+    console.log('DOM already ready, updating immediately...');
+    updateLoggedInUser();
+  }
+
+  // Update status text if available
+  const updateStatusText = () => {
+    if (window.statusText) {
+      window.statusText.textContent = `Logged in as: ${user.Name || user.RepID}. Ready to start recording...`;
+      console.log('Updated status text');
+    } else {
+      console.log('statusText not available yet');
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', updateStatusText);
+  } else {
+    updateStatusText();
+  }
+});
 
 // Performance optimization: Throttle function to limit execution rate
 function throttle(func, limit) {
@@ -53,8 +110,21 @@ function throttle(func, limit) {
   };
 }
 
+// Performance optimization: Debounce function to prevent rapid calls
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
 // Function to start a new recording segment - accessible globally
-function startNewSegment() {
+const startNewSegment = debounce(function() {
   // Check if we have a valid stream and options
   if (!globalStream || !globalOptions) {
     error('Cannot start new segment: stream or options not available');
@@ -68,22 +138,17 @@ function startNewSegment() {
 
   // Create a new MediaRecorder for this segment
   mediaRecorder = new MediaRecorder(globalStream, globalOptions);
-  log('MediaRecorder created with options:', globalOptions);
 
   // Initialize recorded chunks array for this segment
   recordedChunks = [];
 
   mediaRecorder.ondataavailable = event => {
-    log('Data available from MediaRecorder:', event.data.size, 'bytes');
     if (event.data && event.data.size > 0) {
       recordedChunks.push(event.data);
-      log(`Added chunk, total chunks: ${recordedChunks.length}`);
     }
   };
 
   mediaRecorder.onstop = async () => {
-    log('MediaRecorder stopped. Processing segment:', recordedChunks.length);
-
     // Clear the timeout since recording has stopped
     if (segmentTimeoutId) {
       clearTimeout(segmentTimeoutId);
@@ -93,35 +158,46 @@ function startNewSegment() {
     if (recordedChunks.length > 0) {
       // Create a blob from recorded chunks
       const blob = new Blob(recordedChunks, { type: 'video/webm' });
-      log(`Created blob for segment with size: ${blob.size} bytes`);
 
       // Generate filename with timestamp and segment number
       const timestamp = new Date(segmentStartTime).toISOString().replace(/[:.]/g, '-');
       const filename = `work-session-${timestamp}-segment${segmentCounter}.webm`;
 
       try {
-        // Convert blob to buffer
-        const arrayBuffer = await blob.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
+        // Convert blob to buffer OFF THE MAIN THREAD using setTimeout
+        // This prevents blocking the UI during large file conversions
+        setTimeout(async () => {
+          try {
+            const arrayBuffer = await blob.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
 
-        // Save the recording to the database
-        const result = await ipcRenderer.invoke('save-recording', buffer, filename);
+            // Save the recording to the database
+            const result = await ipcRenderer.invoke('save-recording', buffer, filename);
 
-        if (result.success) {
-          log(`Work session segment ${segmentCounter} saved to database`);
-          if (globalStatusText) {
-            globalStatusText.textContent = `Segment ${segmentCounter} saved`;
+            if (result.success) {
+              if (isDevelopment) {
+                log(`Segment ${segmentCounter} saved (${Math.round(buffer.length / 1024)} KB)`);
+              }
+              if (globalStatusText && isDevelopment) {
+                globalStatusText.textContent = `Segment ${segmentCounter} saved`;
+              }
+            } else {
+              error(`Error saving segment ${segmentCounter}: ${result.error}`);
+              if (globalStatusText) {
+                globalStatusText.textContent = `Error saving segment ${segmentCounter}`;
+              }
+            }
+          } catch (saveError) {
+            error(`Error in segment ${segmentCounter}:`, saveError.message);
+            if (globalStatusText) {
+              globalStatusText.textContent = `Error saving segment ${segmentCounter}`;
+            }
           }
-        } else {
-          error(`Error saving work session segment ${segmentCounter}: ${result.error}`);
-          if (globalStatusText) {
-            globalStatusText.textContent = `Error saving segment ${segmentCounter}`;
-          }
-        }
-      } catch (saveError) {
-        error(`Error converting blob to buffer or saving segment ${segmentCounter}:`, saveError);
+        }, 0);
+      } catch (error) {
+        error(`Error preparing segment ${segmentCounter}:`, error.message);
         if (globalStatusText) {
-          globalStatusText.textContent = `Error saving segment ${segmentCounter}`;
+          globalStatusText.textContent = `Error preparing segment ${segmentCounter}`;
         }
       }
 
@@ -132,12 +208,14 @@ function startNewSegment() {
           segmentStartTime = Date.now();
           startNewSegment();
         }
-      }, 100);
+      }, 50); // Reduced from 100ms to 50ms
     }
   };
 
   mediaRecorder.onstart = () => {
-    log('Recording started');
+    if (isDevelopment) {
+      log('Recording started');
+    }
     if (globalStatusText) {
       globalStatusText.textContent = 'Recording in progress...';
     }
@@ -151,54 +229,24 @@ function startNewSegment() {
     }, SEGMENT_DURATION);
   };
 
-  mediaRecorder.onpause = () => {
-    console.log('Recording paused - this should not happen in current implementation');
-    console.log('MediaRecorder state:', mediaRecorder.state);
-    if (globalStatusText) {
-      globalStatusText.textContent = 'Recording paused unexpectedly...';
-    }
-
-    // Clear the timeout when recording is paused
-    if (segmentTimeoutId) {
-      clearTimeout(segmentTimeoutId);
-      segmentTimeoutId = null;
-    }
-  };
-
-  mediaRecorder.onresume = () => {
-    console.log('Recording resumed - this should not happen in current implementation');
-    console.log('MediaRecorder state:', mediaRecorder.state);
-    if (globalStatusText) {
-      globalStatusText.textContent = 'Recording in progress...';
-    }
-
-    // When recording resumes, start a new timeout for the full segment duration
-    if (segmentTimeoutId) {
-      clearTimeout(segmentTimeoutId);
-    }
-
-    segmentTimeoutId = setTimeout(() => {
-      if (mediaRecorder && mediaRecorder.state === 'recording' && !isOnBreak) {
-        mediaRecorder.stop();
-      }
-    }, SEGMENT_DURATION);
-  };
-
   mediaRecorder.onerror = (event) => {
-    console.error('MediaRecorder error:', event);
+    error('MediaRecorder error:', event);
     if (globalStatusText) {
-      globalStatusText.textContent = `Recording error: ${event.error}`;
+      globalStatusText.textContent = 'Recording error...';
     }
   };
 
   // Start capture for the specified duration
   mediaRecorder.start();
-  console.log(`MediaRecorder started for segment ${segmentCounter}`);
-  console.log('MediaRecorder state after start:', mediaRecorder.state);
-}
+  if (isDevelopment) {
+    console.log(`MediaRecorder started for segment ${segmentCounter}`);
+  }
+}, 100); // 100ms debounce to prevent rapid segment starts
 
 // Wait for DOM to be fully loaded before accessing elements
 document.addEventListener('DOMContentLoaded', function() {
+  console.log('DOM Content Loaded, initializing elements...');
+  
   // DOM elements - make them global so they can be accessed by event handlers
   window.checkInBtn = document.getElementById('check-in-btn');
   window.breakBtn = document.getElementById('break-btn');
@@ -210,6 +258,15 @@ document.addEventListener('DOMContentLoaded', function() {
   window.uploadSpeedElement = document.getElementById('upload-speed');
   window.totalDownloadedElement = document.getElementById('total-downloaded');
   window.totalUploadedElement = document.getElementById('total-uploaded');
+  
+  // Debug logging
+  console.log('DOM elements initialized:', {
+    checkInBtn: !!window.checkInBtn,
+    breakBtn: !!window.breakBtn,
+    checkOutBtn: !!window.checkOutBtn,
+    logoutBtn: !!window.logoutBtn,
+    statusText: !!window.statusText
+  });
 
   // Check if statistics elements already exist to avoid duplicates
   let totalWorkTimeElement = document.getElementById('total-work-time');
@@ -299,24 +356,22 @@ document.addEventListener('DOMContentLoaded', function() {
   // Track window visibility state
   let isWindowVisible = true;
 
-  // Listen for user information from main process
-  const { ipcRenderer } = require('electron');
-
-  ipcRenderer.on('user-info', (event, user) => {
-    currentUser = user;
-    console.log('Received user info:', user);
-    
-    // Update UI to show logged in user
-    const loggedInUserElement = document.getElementById('logged-in-user');
-    if (loggedInUserElement) {
-      const userName = user.Name || user.RepID || 'Unknown User';
-      loggedInUserElement.textContent = `👤 ${userName}`;
-      loggedInUserElement.title = `User ID: ${user.RepID || 'N/A'}`;
+  // User info listener already set up at top level, no need to duplicate here
+  // Just update the status text if we already have user info
+  if (currentUser) {
+    const userName = currentUser.Name || currentUser.RepID || 'Unknown User';
+    if (window.statusText) {
+      window.statusText.textContent = `Logged in as: ${userName}. Ready to start recording...`;
     }
     
-    // Update status text
-    if (window.statusText) window.statusText.textContent = `Logged in as: ${user.Name || user.RepID}. Ready to start recording...`;
-  });
+    // Also update logged-in-user element as a backup
+    const loggedInUserElement = document.getElementById('logged-in-user');
+    if (loggedInUserElement && loggedInUserElement.textContent === 'Not logged in') {
+      loggedInUserElement.textContent = `👤 ${userName}`;
+      loggedInUserElement.title = `User ID: ${currentUser.RepID || 'N/A'}`;
+      console.log('✅ Updated logged-in-user from DOMContentLoaded backup');
+    }
+  }
 
   // Listen for network usage updates from main process
   ipcRenderer.on('network-usage-update', (event, networkData) => {
@@ -581,26 +636,39 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Logout button functionality
-  logoutBtn.addEventListener('click', async () => {
-    // Confirm logout with user
-    const confirmed = confirm('Are you sure you want to logout? Your current session will end.');
-    if (confirmed) {
-      try {
-        // Clear user info display
-        const loggedInUserElement = document.getElementById('logged-in-user');
-        if (loggedInUserElement) {
-          loggedInUserElement.textContent = 'Not logged in';
+  if (window.logoutBtn) {
+    window.logoutBtn.addEventListener('click', async () => {
+      console.log('Logout button clicked');
+      
+      // Confirm logout with user
+      const confirmed = confirm('Are you sure you want to logout? Your current session will end.');
+      if (confirmed) {
+        try {
+          // Clear user info display
+          const loggedInUserElement = document.getElementById('logged-in-user');
+          if (loggedInUserElement) {
+            loggedInUserElement.textContent = 'Not logged in';
+            console.log('Cleared logged-in-user display');
+          }
+
+          // Send logout request to main process (which will handle all cleanup)
+          console.log('Sending logout-request to main process...');
+          await ipcRenderer.invoke('logout-request');
+          console.log('Logout successful');
+        } catch (error) {
+          console.error('Error initiating logout:', error);
+          if (window.statusText) {
+            window.statusText.textContent = `Logout error: ${error.message}`;
+          }
         }
-        
-        // Send logout request to main process (which will handle all cleanup)
-        await ipcRenderer.invoke('logout-request');
-        console.log('Logout initiated');
-      } catch (error) {
-        console.error('Error initiating logout:', error);
-        statusText.textContent = `Logout error: ${error.message}`;
+      } else {
+        console.log('Logout cancelled by user');
       }
-    }
-  });
+    });
+    console.log('Logout button listener attached');
+  } else {
+    console.error('Logout button not found in DOM!');
+  }
 
 /**
  * Update the on-screen status with the current worked time and break state.
@@ -714,7 +782,7 @@ async function startScreenRecording() {
     }
 
     // Create constraints for screen capture using the modern format
-    // SD quality - balanced quality and performance
+    // OPTIMIZED: Lower frame rate and resolution for better CPU performance
     const constraints = {
       audio: false,
       video: {
@@ -725,8 +793,8 @@ async function startScreenRecording() {
           minHeight: 480,
           maxWidth: 640,
           maxHeight: 480,
-          minFrameRate: 10,
-          maxFrameRate: 10
+          minFrameRate: 5,  // OPTIMIZED: Reduced from 10 to 5 fps
+          maxFrameRate: 5   // OPTIMIZED: Reduced from 10 to 5 fps
         }
       }
     };
@@ -862,26 +930,34 @@ const trackNetworkUsage = throttle(async function() {
     previousBytesUploaded = totalBytesUploaded;
     window.networkUsageLastCheck = now;
 
-    // Debug logging to see if values are being updated
-    log('Network Usage - Downloaded:', totalBytesDownloaded, 'Uploaded:', totalBytesUploaded);
-
-    // Update UI elements
-    if (downloadSpeedElement) {
-      downloadSpeedElement.textContent = `${Math.round(downloadSpeed / 1024)} KB/s`;
+    // Update UI elements only if values changed significantly (reduce DOM updates)
+    if (downloadSpeedElement && uploadSpeedElement) {
+      const downloadKB = Math.round(downloadSpeed / 1024);
+      const uploadKB = Math.round(uploadSpeed / 1024);
+      
+      // Only update if values changed (reduces DOM reflows)
+      if (downloadSpeedElement.textContent !== `${downloadKB} KB/s`) {
+        downloadSpeedElement.textContent = `${downloadKB} KB/s`;
+      }
+      if (uploadSpeedElement.textContent !== `${uploadKB} KB/s`) {
+        uploadSpeedElement.textContent = `${uploadKB} KB/s`;
+      }
     }
-    if (uploadSpeedElement) {
-      uploadSpeedElement.textContent = `${Math.round(uploadSpeed / 1024)} KB/s`;
-    }
-    if (totalDownloadedElement) {
-      totalDownloadedElement.textContent = `${Math.round(totalBytesDownloaded / (1024 * 1024))} MB`;
-    }
-    if (totalUploadedElement) {
-      totalUploadedElement.textContent = `${Math.round(totalBytesUploaded / (1024 * 1024))} MB`;
+    if (totalDownloadedElement && totalUploadedElement) {
+      const downloadedMB = Math.round(totalBytesDownloaded / (1024 * 1024));
+      const uploadedMB = Math.round(totalBytesUploaded / (1024 * 1024));
+      
+      if (totalDownloadedElement.textContent !== `${downloadedMB} MB`) {
+        totalDownloadedElement.textContent = `${downloadedMB} MB`;
+      }
+      if (totalUploadedElement.textContent !== `${uploadedMB} MB`) {
+        totalUploadedElement.textContent = `${uploadedMB} MB`;
+      }
     }
   } catch (error) {
     warn('Error tracking network usage:', error);
   }
-}, 1000); // Throttle to 1 second minimum
+}, 2000); // Throttle to 2 seconds (increased from 1 second)
 
 // Start network usage tracking when DOM is loaded
 function startNetworkUsageTracking() {
@@ -893,8 +969,8 @@ function startNetworkUsageTracking() {
   // Update network usage immediately
   trackNetworkUsage();
 
-  // Then update every 5 seconds (reduced from 2 seconds for better performance)
-  networkUsageInterval = setInterval(trackNetworkUsage, 5000);
+  // Then update every 10 seconds (OPTIMIZED: increased from 5 seconds to reduce CPU)
+  networkUsageInterval = setInterval(trackNetworkUsage, 10000);
 }
 
 // Listen for window visibility changes from main process

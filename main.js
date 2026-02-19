@@ -3,25 +3,22 @@ const path = require('path');
 const fs = require('fs');
 
 // OPTIMIZATION: Set performance-related command-line switches before app ready
+// Disable GPU features that consume CPU
 app.commandLine.appendSwitch('disable-gpu-vsync', 'true');
-app.commandLine.appendSwitch('disable-threaded-animation', 'false');
-app.commandLine.appendSwitch('enable-gpu-rasterization', 'true');
-app.commandLine.appendSwitch('num-raster-threads', '4');
-app.commandLine.appendSwitch('disable-partial-raster', 'true');
-app.commandLine.appendSwitch('enable-zero-copy', 'true');
+app.commandLine.appendSwitch('disable-threaded-animation', 'true'); // Changed to true
+app.commandLine.appendSwitch('disable-composited-antialiasing', 'true');
+app.commandLine.appendSwitch('disable-accelerated-layers', 'true');
 // Reduce memory usage
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512');
-// Optimize for performance
-app.commandLine.appendSwitch('disable-features', 'TranslateUI,MediaRouter');
-// Additional optimizations for better performance
-app.commandLine.appendSwitch('ignore-gpu-blacklist', 'true');
-app.commandLine.appendSwitch('enable-native-gpu-memory-buffers', 'true');
-app.commandLine.appendSwitch('gpu-memory-buffer-video-capture', 'true');
-// Reduce compositor work
-app.commandLine.appendSwitch('disable-frame-rate-limit', 'true');
-// Optimize renderer performance
-app.commandLine.appendSwitch('enable-accelerated-video-decode', 'true');
-app.commandLine.appendSwitch('enable-accelerated-video-encode', 'true');
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256'); // Reduced from 512 to 256
+// Optimize for performance - disable unnecessary features
+app.commandLine.appendSwitch('disable-features', 'TranslateUI,MediaRouter,HardwareMediaKeyHandling,MediaSessionService,WebContentsCapture');
+// Additional optimizations for better CPU performance
+app.commandLine.appendSwitch('disable-gpu-compositing', 'true');
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache', 'true');
+app.commandLine.appendSwitch('disable-software-rasterizer', 'true');
+// Optimize renderer
+app.commandLine.appendSwitch('enable-low-end-device-mode', 'true');
+app.commandLine.appendSwitch('disable-2d-canvas-clip-aa', 'true');
 
 // Simple JSON store for persistent settings (avoids ES module issues)
 const store = {
@@ -53,14 +50,21 @@ const store = {
 // Ensure only one instance of the application runs
 const gotTheLock = app.requestSingleInstanceLock();
 
+console.log('=== APP STARTING ===');
+console.log('Single instance lock acquired:', gotTheLock);
+
 if (!gotTheLock) {
-  console.log('Another instance of the application is already running. Quitting this instance.');
+  console.log('❌ Another instance of the application is already running. Quitting this instance.');
+  console.log('Check system tray for existing XPloyee instance!');
   app.quit();
   return; // Exit this instance if another is already running
 }
 
+console.log('✅ No other instance running, continuing startup...');
+
 // Handle second instance attempts
 app.on('second-instance', (event, commandLine, workingDirectory) => {
+  console.log('=== SECOND INSTANCE DETECTED ===');
   // Someone tried to run a second instance, we should focus our window
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -403,8 +407,12 @@ function createTrayMenu(isLoggedIn) {
     {
       label: 'Quit',
       click: () => {
+        console.log('=== TRAY QUIT CLICKED ===');
+        console.log('isQuitting before:', isQuitting);
         // Set quitting flag to trigger quit logging
         isQuitting = true;
+        console.log('isQuitting after:', isQuitting);
+        console.log('Calling app.quit()...');
         app.quit();
       }
     }
@@ -456,24 +464,26 @@ function createWindow() {
       enableRemoteModule: true,
       // Enable screen capture permissions
       autoplayPolicy: 'no-user-gesture-required',
-      // OPTIMIZED: Enable hardware acceleration for better performance
-      hardwareAccelerationEnabled: true,
-      // Disable unused features to reduce memory
+      // OPTIMIZED: Disable hardware acceleration to reduce CPU usage
+      hardwareAccelerationEnabled: false, // Changed to false
+      // Disable unused features to reduce memory and CPU
       webgl: false,
-      images: true // Keep images enabled for UI
+      images: true, // Keep images enabled for UI
+      // OPTIMIZED: Disable experimental features
+      experimentalFeatures: false
     },
-    icon: path.join(__dirname, 'assets/icon.png'), // Optional: Add an icon
-    webSecurity: false, // Allow mixed content for screen capture
-    // Enable screen capture
+    icon: path.join(__dirname, 'assets/icon.png'),
+    webSecurity: false,
     alwaysOnTop: false,
-    fullscreenable: true,
-    show: false, // Don't show the window immediately - we'll control visibility based on startup settings
-    // OPTIMIZED: Use background color to prevent white flash
+    fullscreenable: false, // Changed to false - reduces rendering
+    show: false,
     backgroundColor: '#2c3e50',
-    // OPTIMIZED: Disable thick frame to reduce rendering
-    thickFrame: true,
-    // OPTIMIZED: Enable paint polling for smoother rendering
-    paintWhenInitiallyHidden: true
+    thickFrame: false, // Changed to false - less rendering
+    paintWhenInitiallyHidden: true,
+    // OPTIMIZED: Reduce frame rate for UI to save CPU
+    frameRate: 20, // Reduced from 30 to 20
+    // OPTIMIZED: Disable resizable to reduce rendering overhead
+    resizable: false
   });
 
   // Configure session to allow screen capture
@@ -621,8 +631,12 @@ function createAppMenu() {
         {
           label: 'Quit',
           click: () => {
+            console.log('=== TOP MENU QUIT CLICKED ===');
+            console.log('isQuitting before:', isQuitting);
             // Set quitting flag to trigger quit logging
             isQuitting = true;
+            console.log('isQuitting after:', isQuitting);
+            console.log('Calling app.quit()...');
             app.quit();
           }
         }
@@ -683,11 +697,14 @@ app.whenReady().then(async () => {
   updateTrayMenu();
 
   // Check if there's a valid session stored
+  console.log('Checking for saved session...');
   const savedSession = await sessionManager.loadSession();
+  console.log('Session load result:', savedSession ? 'Found' : 'Not found');
 
   if (savedSession) {
     // If there's a valid session, skip login and go directly to main window
     console.log('Valid session found, auto-login...');
+    console.log('User:', savedSession.Name || savedSession.RepID);
     loggedInUser = savedSession;
 
     // Initialize database connection and enable activity logging for session-based login
@@ -704,13 +721,31 @@ app.whenReady().then(async () => {
     // Create main application window
     createWindow();
 
-    // Pass user information to the renderer
-    mainWindow.webContents.once('dom-ready', () => {
-      mainWindow.webContents.send('user-info', savedSession);
+    // Pass user information to the renderer with improved reliability
+    const sendUserInfo = () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        console.log('Sending user-info to renderer (auto-login)');
+        mainWindow.webContents.send('user-info', savedSession);
+      }
+    };
 
-      // Start network monitoring after DOM is ready
-      startNetworkMonitoring();
-    });
+    // Check if window is already ready
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.webContents.isLoading()) {
+        // Window is still loading, wait for dom-ready
+        mainWindow.webContents.once('dom-ready', () => {
+          console.log('Main window DOM ready (auto-login), sending user-info');
+          sendUserInfo();
+          // Start network monitoring after DOM is ready
+          startNetworkMonitoring();
+        });
+      } else {
+        // Window is already loaded, send immediately
+        console.log('Main window already loaded (auto-login), sending user-info immediately');
+        sendUserInfo();
+        startNetworkMonitoring();
+      }
+    }
 
     // Store mainWindow globally so database operations can send network usage updates
     global.mainWindow = mainWindow;
@@ -780,19 +815,26 @@ app.whenReady().then(async () => {
 
     // Handle app quit - log quit activity and stop heartbeat (preserve session)
     app.on('before-quit', async (event) => {
+      console.log('=== BEFORE-QUIT triggered ===');
+      console.log('isQuitting:', isQuitting);
+      console.log('loggedInUser:', loggedInUser ? loggedInUser.Name : 'null');
+      
       // Prevent recursive calls
       if (isQuittingInProgress) {
+        console.log('Quit already in progress, skipping');
         return;
       }
 
+      // Only log quit if user explicitly triggered it (via menu)
       if (loggedInUser && isQuitting) {
+        console.log('Explicit quit detected, logging quit activity...');
         // Prevent quit until we finish logging
         event.preventDefault();
         isQuittingInProgress = true;
-        
+
         // Stop heartbeat
         stopHeartbeat();
-        
+
         // Log quit activity (so admin panel shows offline)
         try {
           await logUserActivity('quit', 0);
@@ -800,12 +842,17 @@ app.whenReady().then(async () => {
         } catch (error) {
           console.error('Error logging quit activity:', error);
         }
-        
+
         console.log('App quit - heartbeat stopped, session preserved');
-        
+
         // Now allow the app to quit
         app.removeAllListeners('before-quit');
         app.quit();
+      } else if (loggedInUser && !isQuitting) {
+        // User didn't explicitly quit - probably closing window or crash
+        console.log('Window close detected (not explicit quit), preserving session without logging quit');
+        // Just stop heartbeat, don't log quit
+        stopHeartbeat();
       }
     });
 
@@ -1048,33 +1095,69 @@ async function processPendingVideoUploads() {
 
 // Handle successful login
 ipcMain.handle('login-success', async (event, user) => {
+  console.log('=== LOGIN SUCCESS ===');
+  console.log('User object received:', JSON.stringify(user, null, 2));
+  console.log('User.Name:', user.Name);
+  console.log('User.RepID:', user.RepID);
+  
   // Store the logged-in user
   loggedInUser = user;
+  console.log('loggedInUser set to:', loggedInUser.Name || loggedInUser.RepID);
 
   // Save session for persistent login
-  await sessionManager.saveSession(user);
+  const sessionSaved = await sessionManager.saveSession(user);
+  console.log('Session saved:', sessionSaved);
 
   // Log login activity
-  await logUserActivity('login');
+  const activityResult = await logUserActivity('login');
+  console.log('Login activity logged:', activityResult);
 
   // Start heartbeat/ping to keep admin panel updated in real-time
   startHeartbeat();
+  console.log('Heartbeat started');
 
   // Close login window
   if (loginWindow && !loginWindow.isDestroyed()) {
     loginWindow.close();
+    console.log('Login window closed');
   }
 
   // Create main application window
   createWindow();
+  console.log('Main window created');
 
   // Pass user information to the renderer
-  mainWindow.webContents.once('dom-ready', () => {
-    mainWindow.webContents.send('user-info', user);
+  // Use a more reliable method to ensure the message is received
+  const sendUserInfo = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      console.log('=== SENDING USER-INFO ===');
+      console.log('Sending to renderer:', JSON.stringify(user, null, 2));
+      mainWindow.webContents.send('user-info', user);
+    } else {
+      console.error('mainWindow not available for sendUserInfo');
+    }
+  };
 
-    // Start network monitoring after DOM is ready
-    startNetworkMonitoring();
-  });
+  // Check if window is already ready
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    console.log('Window isLoading:', mainWindow.webContents.isLoading());
+    if (mainWindow.webContents.isLoading()) {
+      // Window is still loading, wait for dom-ready
+      mainWindow.webContents.once('dom-ready', () => {
+        console.log('Main window DOM ready, sending user-info');
+        sendUserInfo();
+        // Start network monitoring after DOM is ready
+        startNetworkMonitoring();
+      });
+    } else {
+      // Window is already loaded, send immediately
+      console.log('Main window already loaded, sending user-info immediately');
+      sendUserInfo();
+      startNetworkMonitoring();
+    }
+  } else {
+    console.error('Main window not available after creation');
+  }
 
   // Store mainWindow globally so database operations can send network usage updates
   global.mainWindow = mainWindow;
@@ -1131,13 +1214,6 @@ ipcMain.handle('login-success', async (event, user) => {
         createLoginWindow();
       }
     }
-  });
-
-  // Flag to determine if we're quitting the app or just closing the window
-  let isQuitting = false;
-
-  app.on('before-quit', () => {
-    isQuitting = true; // Set flag to allow actual quitting
   });
 
   // Also handle the case when user tries to close the window
