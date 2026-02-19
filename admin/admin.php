@@ -78,6 +78,9 @@ switch ($action) {
     case 'serve_combined_video':
         serveCombinedVideo();
         break;
+    case 'get_user_statuses':
+        getUserStatuses();
+        break;
     default:
         // Default to dashboard if action is not recognized
         showDashboard();
@@ -295,9 +298,9 @@ function showDashboard() {
                     SELECT MAX(ua3.rDateTime)
                     FROM user_activity ua3
                     WHERE ua3.salesrepTb = s.ID
-                    AND ua3.activity_type IN ('logout', 'check-out')
+                    AND ua3.activity_type IN ('logout', 'check-out', 'quit')
                 ), '1900-01-01')
-                AND ua2.rDateTime >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
+                AND ua2.rDateTime >= DATE_SUB(NOW(), INTERVAL 30 SECOND)
             ) THEN 'online'
             ELSE 'offline'
         END = ?";
@@ -333,9 +336,9 @@ function showDashboard() {
                            SELECT MAX(ua3.rDateTime)
                            FROM user_activity ua3
                            WHERE ua3.salesrepTb = s.ID
-                           AND ua3.activity_type IN ('logout', 'check-out')
+                           AND ua3.activity_type IN ('logout', 'check-out', 'quit')
                        ), '1900-01-01')
-                       AND ua2.rDateTime >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
+                       AND ua2.rDateTime >= DATE_SUB(NOW(), INTERVAL 30 SECOND)
                    ) THEN 'online'
                    ELSE 'offline'
                END as current_status
@@ -550,9 +553,9 @@ function showDashboard() {
                         SELECT MAX(ua2.rDateTime)
                         FROM user_activity ua2
                         WHERE ua2.salesrepTb = s.ID
-                        AND ua2.activity_type IN ('logout', 'check-out')
+                        AND ua2.activity_type IN ('logout', 'check-out', 'quit')
                     ), '1900-01-01')
-                    AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
+                    AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 30 SECOND)
                 ) THEN 'online'
                 ELSE 'offline'
             END = ? ";
@@ -587,9 +590,9 @@ function showDashboard() {
                            SELECT MAX(ua2.rDateTime)
                            FROM user_activity ua2
                            WHERE ua2.salesrepTb = s.ID
-                           AND ua2.activity_type IN ('logout', 'check-out')
+                           AND ua2.activity_type IN ('logout', 'check-out', 'quit')
                        ), '1900-01-01')
-                       AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
+                       AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 30 SECOND)
                    ) THEN 'online'
                    ELSE 'offline'
                END as current_status,
@@ -1127,7 +1130,7 @@ function showDashboard() {
             <div style="display: flex; gap: 15px; align-items: center;">
                 <div id="refresh-indicator" style="font-size: 12px; color: #888; display: flex; align-items: center; gap: 5px;">
                     <span style="display: inline-block; width: 8px; height: 8px; background: #4CAF50; border-radius: 50%; animation: pulse 2s infinite;"></span>
-                    Auto-refresh in <span id="refresh-countdown">30</span>s
+                    Live updating every 10s
                 </div>
                 <a href="?action=logout" class="logout-btn">Logout</a>
             </div>
@@ -1220,7 +1223,7 @@ function showDashboard() {
                                 </thead>
                                 <tbody>
                                     <?php foreach ($active_users as $user): ?>
-                                        <tr>
+                                        <tr data-user-id="<?php echo $user['ID']; ?>">
                                             <td><?php echo htmlspecialchars($user['ID']); ?></td>
                                             <td><?php echo htmlspecialchars($user['RepID']); ?></td>
                                             <td><?php echo htmlspecialchars($user['Name']); ?></td>
@@ -1609,23 +1612,37 @@ function showDashboard() {
         </div>
 
         <script>
-            // Auto-refresh page every 30 seconds to update user status in real-time
-            let refreshCountdown = 30;
-            const countdownElement = document.getElementById('refresh-countdown');
+            // Real-time status update using AJAX (no full page reload)
+            function updateUserStatuses() {
+                fetch('?action=get_user_statuses')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            data.users.forEach(user => {
+                                const row = document.querySelector(`tr[data-user-id="${user.ID}"]`);
+                                if (row) {
+                                    const statusCell = row.cells[5]; // 6th column (0-indexed)
+                                    if (statusCell) {
+                                        if (user.current_status === 'online') {
+                                            statusCell.innerHTML = '<span class="user-status-active">Online</span>';
+                                        } else {
+                                            statusCell.innerHTML = '<span class="user-status-inactive">Offline</span>';
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    })
+                    .catch(err => console.error('Status update failed:', err));
+            }
             
-            setInterval(function() {
-                refreshCountdown--;
-                if (countdownElement) {
-                    countdownElement.textContent = refreshCountdown;
-                }
-                if (refreshCountdown <= 0) {
-                    refreshCountdown = 30;
-                }
-            }, 1000);
+            // Update every 10 seconds for real-time feel
+            setInterval(updateUserStatuses, 10000);
             
+            // Also do full refresh every 5 minutes to catch any other changes
             setInterval(function() {
                 location.reload();
-            }, 30000); // 30 seconds
+            }, 300000); // 5 minutes
 
             function switchTab(tabName) {
                 // Hide all tab contents
@@ -6116,5 +6133,45 @@ function showLiveWatching() {
     </body>
     </html>
     <?php
+}
+
+// API endpoint to get user statuses for AJAX updates
+function getUserStatuses() {
+    header('Content-Type: application/json');
+    
+    $pdo = getDatabaseConnection();
+    if (!$pdo) {
+        echo json_encode(['success' => false, 'error' => 'Database connection failed']);
+        return;
+    }
+    
+    try {
+        $stmt = $pdo->prepare("
+            SELECT s.ID, s.RepID, s.Name,
+                   CASE
+                       WHEN EXISTS (
+                           SELECT 1 FROM user_activity ua
+                           WHERE ua.salesrepTb = s.ID
+                           AND ua.activity_type IN ('login', 'ping')
+                           AND ua.rDateTime > COALESCE((
+                               SELECT MAX(ua2.rDateTime)
+                               FROM user_activity ua2
+                               WHERE ua2.salesrepTb = s.ID
+                               AND ua2.activity_type IN ('logout', 'check-out', 'quit')
+                           ), '1900-01-01')
+                           AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 30 SECOND)
+                       ) THEN 'online'
+                       ELSE 'offline'
+                   END as current_status
+            FROM salesrep s
+            WHERE s.Actives = 'YES'
+        ");
+        $stmt->execute();
+        $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        echo json_encode(['success' => true, 'users' => $users]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
 }
 ?>

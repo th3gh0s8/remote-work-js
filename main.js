@@ -201,6 +201,10 @@ let loginWindow = null;
 const db = new DatabaseConnection();
 let sessionManager;
 
+// Flags to track app quit state
+let isQuitting = false;
+let isQuittingInProgress = false;
+
 /**
  * Creates the tray context menu based on the current login state
  */
@@ -390,7 +394,8 @@ function createTrayMenu(isLoggedIn) {
     {
       label: 'Quit',
       click: () => {
-        // Quit the application
+        // Set quitting flag to trigger quit logging
+        isQuitting = true;
         app.quit();
       }
     }
@@ -607,7 +612,8 @@ function createAppMenu() {
         {
           label: 'Quit',
           click: () => {
-            // Quit the application
+            // Set quitting flag to trigger quit logging
+            isQuitting = true;
             app.quit();
           }
         }
@@ -763,11 +769,35 @@ app.whenReady().then(async () => {
       // If isQuitting is true, the window will close normally
     });
 
-    // Handle app quit - just stop heartbeat (don't clear session)
-    app.on('before-quit', () => {
-      // Stop heartbeat - this will make admin panel show offline
-      stopHeartbeat();
-      console.log('App quit - heartbeat stopped, session preserved');
+    // Handle app quit - log quit activity and stop heartbeat (preserve session)
+    app.on('before-quit', async (event) => {
+      // Prevent recursive calls
+      if (isQuittingInProgress) {
+        return;
+      }
+
+      if (loggedInUser && isQuitting) {
+        // Prevent quit until we finish logging
+        event.preventDefault();
+        isQuittingInProgress = true;
+        
+        // Stop heartbeat
+        stopHeartbeat();
+        
+        // Log quit activity (so admin panel shows offline)
+        try {
+          await logUserActivity('quit', 0);
+          console.log('Quit activity logged for user:', loggedInUser.ID);
+        } catch (error) {
+          console.error('Error logging quit activity:', error);
+        }
+        
+        console.log('App quit - heartbeat stopped, session preserved');
+        
+        // Now allow the app to quit
+        app.removeAllListeners('before-quit');
+        app.quit();
+      }
     });
 
     // Handle window visibility changes to notify renderer and update tray menu
@@ -1866,7 +1896,7 @@ function startHeartbeat() {
 
   console.log('Starting heartbeat for user:', loggedInUser?.ID);
 
-  // Send heartbeat every 30 seconds
+  // Send heartbeat every 15 seconds for faster response
   heartbeatInterval = setInterval(async () => {
     if (loggedInUser) {
       try {
@@ -1881,7 +1911,7 @@ function startHeartbeat() {
         console.error('Heartbeat error:', error);
       }
     }
-  }, 30000); // 30 seconds
+  }, 15000); // 15 seconds
 }
 
 // Function to stop heartbeat (called on logout/quit)
