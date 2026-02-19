@@ -194,6 +194,7 @@ let totalBytesUploaded = 0;
 let previousBytesDownloaded = 0;
 let previousBytesUploaded = 0;
 let networkUsageInterval = null;
+let heartbeatInterval = null;
 
 let mainWindow;
 let loginWindow = null;
@@ -389,7 +390,7 @@ function createTrayMenu(isLoggedIn) {
     {
       label: 'Quit',
       click: () => {
-        // Force quit the application
+        // Quit the application
         app.quit();
       }
     }
@@ -603,7 +604,13 @@ function createAppMenu() {
           }
         },
         { type: 'separator' },
-        { role: 'quit' }
+        {
+          label: 'Quit',
+          click: () => {
+            // Quit the application
+            app.quit();
+          }
+        }
       ]
     },
     {
@@ -668,8 +675,16 @@ app.whenReady().then(async () => {
     console.log('Valid session found, auto-login...');
     loggedInUser = savedSession;
 
+    // Initialize database connection and enable activity logging for session-based login
+    await db.connect(true);
+    console.log('Database connection initialized, isAuthenticated:', db.isAuthenticated);
+
     // Log login activity
-    await logUserActivity('login');
+    const loginResult = await logUserActivity('login');
+    console.log('Login activity logged:', loginResult);
+
+    // Start heartbeat/ping to keep admin panel updated in real-time
+    startHeartbeat();
 
     // Create main application window
     createWindow();
@@ -738,28 +753,21 @@ app.whenReady().then(async () => {
       }, 50); // Small delay to ensure the window state is updated
     });
 
-    // Flag to determine if we're quitting the app or just closing the window
-    let isQuitting = false;
-
-    app.on('before-quit', () => {
-      isQuitting = true; // Set flag to allow actual quitting
-    });
-
-    // Also handle the case when user tries to close the window
+    // Also handle the case when user tries to close the window (X button)
     mainWindow.on('close', (event) => {
       if (!isQuitting) {
-        // Prevent the window from closing, just hide it
+        // Prevent the window from closing, just hide it to tray
         event.preventDefault();
         mainWindow.hide();
       }
       // If isQuitting is true, the window will close normally
     });
 
-    // Handle app quit to log logout activity
-    app.on('quit', async () => {
-      if (loggedInUser) {
-        await logUserActivity('logout');
-      }
+    // Handle app quit - just stop heartbeat (don't clear session)
+    app.on('before-quit', () => {
+      // Stop heartbeat - this will make admin panel show offline
+      stopHeartbeat();
+      console.log('App quit - heartbeat stopped, session preserved');
     });
 
     // Handle window visibility changes to notify renderer and update tray menu
@@ -926,6 +934,9 @@ ipcMain.handle('logout-request', async (event) => {
       await logUserActivity('logout');
     }
 
+    // Stop heartbeat
+    stopHeartbeat();
+
     // Clear the logged in user and all session data
     loggedInUser = null;
     await sessionManager.clearAllSessionData();
@@ -1006,6 +1017,9 @@ ipcMain.handle('login-success', async (event, user) => {
 
   // Log login activity
   await logUserActivity('login');
+
+  // Start heartbeat/ping to keep admin panel updated in real-time
+  startHeartbeat();
 
   // Close login window
   if (loginWindow && !loginWindow.isDestroyed()) {
@@ -1841,6 +1855,42 @@ function startNetworkMonitoring() {
       }
     }
   }, 5000); // Changed from 2000ms to 5000ms
+}
+
+// Function to start heartbeat/ping to admin panel (real-time online status)
+function startHeartbeat() {
+  // Clear any existing heartbeat
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+  }
+
+  console.log('Starting heartbeat for user:', loggedInUser?.ID);
+
+  // Send heartbeat every 30 seconds
+  heartbeatInterval = setInterval(async () => {
+    if (loggedInUser) {
+      try {
+        // Ensure database is connected before sending heartbeat
+        if (!db.isAuthenticated) {
+          await db.connect(true);
+        }
+        // Log a ping activity to keep user marked as online
+        const result = await logUserActivity('ping', 0);
+        console.log('Heartbeat sent for user:', loggedInUser.ID, 'Result:', result);
+      } catch (error) {
+        console.error('Heartbeat error:', error);
+      }
+    }
+  }, 30000); // 30 seconds
+}
+
+// Function to stop heartbeat (called on logout/quit)
+function stopHeartbeat() {
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+    console.log('Heartbeat stopped');
+  }
 }
 
 // Handle network usage request from renderer

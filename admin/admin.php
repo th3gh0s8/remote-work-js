@@ -290,13 +290,14 @@ function showDashboard() {
             WHEN EXISTS (
                 SELECT 1 FROM user_activity ua2
                 WHERE ua2.salesrepTb = s.ID
-                AND ua2.activity_type = 'login'
+                AND ua2.activity_type IN ('login', 'ping')
                 AND ua2.rDateTime > COALESCE((
                     SELECT MAX(ua3.rDateTime)
                     FROM user_activity ua3
                     WHERE ua3.salesrepTb = s.ID
                     AND ua3.activity_type IN ('logout', 'check-out')
                 ), '1900-01-01')
+                AND ua2.rDateTime >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
             ) THEN 'online'
             ELSE 'offline'
         END = ?";
@@ -327,13 +328,14 @@ function showDashboard() {
                    WHEN EXISTS (
                        SELECT 1 FROM user_activity ua2
                        WHERE ua2.salesrepTb = s.ID
-                       AND ua2.activity_type = 'login'
+                       AND ua2.activity_type IN ('login', 'ping')
                        AND ua2.rDateTime > COALESCE((
                            SELECT MAX(ua3.rDateTime)
                            FROM user_activity ua3
                            WHERE ua3.salesrepTb = s.ID
                            AND ua3.activity_type IN ('logout', 'check-out')
                        ), '1900-01-01')
+                       AND ua2.rDateTime >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
                    ) THEN 'online'
                    ELSE 'offline'
                END as current_status
@@ -543,14 +545,14 @@ function showDashboard() {
                 WHEN EXISTS (
                     SELECT 1 FROM user_activity ua
                     WHERE ua.salesrepTb = s.ID
-                    AND ua.activity_type = 'login'
+                    AND ua.activity_type IN ('login', 'ping')
                     AND ua.rDateTime > COALESCE((
                         SELECT MAX(ua2.rDateTime)
                         FROM user_activity ua2
                         WHERE ua2.salesrepTb = s.ID
                         AND ua2.activity_type IN ('logout', 'check-out')
                     ), '1900-01-01')
-                    AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                    AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
                 ) THEN 'online'
                 ELSE 'offline'
             END = ? ";
@@ -580,14 +582,14 @@ function showDashboard() {
                    WHEN EXISTS (
                        SELECT 1 FROM user_activity ua
                        WHERE ua.salesrepTb = s.ID
-                       AND ua.activity_type = 'login'
+                       AND ua.activity_type IN ('login', 'ping')
                        AND ua.rDateTime > COALESCE((
                            SELECT MAX(ua2.rDateTime)
                            FROM user_activity ua2
                            WHERE ua2.salesrepTb = s.ID
                            AND ua2.activity_type IN ('logout', 'check-out')
                        ), '1900-01-01')
-                       AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                       AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
                    ) THEN 'online'
                    ELSE 'offline'
                END as current_status,
@@ -1122,10 +1124,21 @@ function showDashboard() {
                 <span class="logo-icon">📊</span>
                 <h1>Admin Dashboard</h1>
             </div>
-            <div style="display: flex; gap: 15px;">
+            <div style="display: flex; gap: 15px; align-items: center;">
+                <div id="refresh-indicator" style="font-size: 12px; color: #888; display: flex; align-items: center; gap: 5px;">
+                    <span style="display: inline-block; width: 8px; height: 8px; background: #4CAF50; border-radius: 50%; animation: pulse 2s infinite;"></span>
+                    Auto-refresh in <span id="refresh-countdown">30</span>s
+                </div>
                 <a href="?action=logout" class="logout-btn">Logout</a>
             </div>
         </div>
+
+        <style>
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.5; }
+            }
+        </style>
 
         <div class="container">
             <?php if (isset($_GET['success'])): ?>
@@ -1596,6 +1609,24 @@ function showDashboard() {
         </div>
 
         <script>
+            // Auto-refresh page every 30 seconds to update user status in real-time
+            let refreshCountdown = 30;
+            const countdownElement = document.getElementById('refresh-countdown');
+            
+            setInterval(function() {
+                refreshCountdown--;
+                if (countdownElement) {
+                    countdownElement.textContent = refreshCountdown;
+                }
+                if (refreshCountdown <= 0) {
+                    refreshCountdown = 30;
+                }
+            }, 1000);
+            
+            setInterval(function() {
+                location.reload();
+            }, 30000); // 30 seconds
+
             function switchTab(tabName) {
                 // Hide all tab contents
                 document.querySelectorAll('.tab-content').forEach(content => {

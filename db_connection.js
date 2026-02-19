@@ -11,11 +11,12 @@ class DatabaseConnection {
     this.isAuthenticated = false;
   }
 
-  async connect() {
+  async connect(skipAuthCheck = false) {
     // For API-based approach, connection just verifies the API endpoint is accessible
     // Skip connection test in development to prevent hanging
     if (config.NODE_ENV === 'development') {
       console.log("Skipping API server connection test in development mode");
+      this.isAuthenticated = true; // Allow activity logging in development
       return true;
     }
 
@@ -31,10 +32,19 @@ class DatabaseConnection {
       });
 
       console.log("Connected to API server");
+      // If server is reachable, mark as authenticated for activity logging
+      // This allows session-based logins to log activities
+      if (skipAuthCheck) {
+        this.isAuthenticated = true;
+      }
       return true;
     } catch (error) {
       console.warn("API server connection failed:", error.message);
       console.log("Operating in offline mode with cached credentials");
+      // Even in offline mode, allow activity logging (will be handled by server when back online)
+      if (skipAuthCheck) {
+        this.isAuthenticated = true;
+      }
       return true; // Return true to allow app to continue in offline mode
     }
   }
