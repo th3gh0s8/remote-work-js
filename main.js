@@ -1810,7 +1810,7 @@ function startNetworkMonitoring() {
     clearInterval(networkUsageInterval);
   }
 
-  // Update network usage every second
+  // Update network usage every 2 seconds (optimized for better performance)
   networkUsageInterval = setInterval(async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       try {
@@ -1821,10 +1821,13 @@ function startNetworkMonitoring() {
           mainWindow.webContents.send('network-usage-update', networkData);
         }
       } catch (error) {
-        console.error('Error sending network usage update:', error);
+        // Silently ignore errors in production to reduce logging overhead
+        if (config.NODE_ENV === 'development') {
+          console.error('Error sending network usage update:', error);
+        }
       }
     }
-  }, 1000);
+  }, 2000);
 }
 
 // Handle network usage request from renderer

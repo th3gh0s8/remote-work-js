@@ -34,11 +34,18 @@ let globalStream = null;
 let globalOptions = null;
 let globalStatusText = null;
 
+// Performance optimization: Only log in development mode
+// Detect development mode from Electron
+const isDevelopment = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development';
+const log = isDevelopment ? console.log.bind(console) : () => {};
+const warn = isDevelopment ? console.warn.bind(console) : () => {};
+const error = isDevelopment ? console.error.bind(console) : () => {};
+
 // Function to start a new recording segment - accessible globally
 function startNewSegment() {
   // Check if we have a valid stream and options
   if (!globalStream || !globalOptions) {
-    console.error('Cannot start new segment: stream or options not available');
+    error('Cannot start new segment: stream or options not available');
     return;
   }
 
@@ -49,22 +56,21 @@ function startNewSegment() {
 
   // Create a new MediaRecorder for this segment
   mediaRecorder = new MediaRecorder(globalStream, globalOptions);
-  console.log('MediaRecorder created with options:', globalOptions);
-  console.log('MediaRecorder state:', mediaRecorder.state);
+  log('MediaRecorder created with options:', globalOptions);
 
   // Initialize recorded chunks array for this segment
   recordedChunks = [];
 
   mediaRecorder.ondataavailable = event => {
-    console.log('Data available from MediaRecorder:', event.data.size, 'bytes');
+    log('Data available from MediaRecorder:', event.data.size, 'bytes');
     if (event.data && event.data.size > 0) {
       recordedChunks.push(event.data);
-      console.log(`Added chunk, total chunks: ${recordedChunks.length}, chunk size: ${event.data.size} bytes`);
+      log(`Added chunk, total chunks: ${recordedChunks.length}`);
     }
   };
 
   mediaRecorder.onstop = async () => {
-    console.log('MediaRecorder stopped. Processing segment:', recordedChunks.length);
+    log('MediaRecorder stopped. Processing segment:', recordedChunks.length);
 
     // Clear the timeout since recording has stopped
     if (segmentTimeoutId) {
@@ -75,7 +81,7 @@ function startNewSegment() {
     if (recordedChunks.length > 0) {
       // Create a blob from recorded chunks
       const blob = new Blob(recordedChunks, { type: 'video/webm' });
-      console.log(`Created blob for segment with size: ${blob.size} bytes`);
+      log(`Created blob for segment with size: ${blob.size} bytes`);
 
       // Generate filename with timestamp and segment number
       const timestamp = new Date(segmentStartTime).toISOString().replace(/[:.]/g, '-');
@@ -90,20 +96,20 @@ function startNewSegment() {
         const result = await ipcRenderer.invoke('save-recording', buffer, filename);
 
         if (result.success) {
-          console.log(`Work session segment ${segmentCounter} saved to database with ID: ${result.id}`);
+          log(`Work session segment ${segmentCounter} saved to database`);
           if (globalStatusText) {
-            globalStatusText.textContent = `Segment ${segmentCounter} saved to database (ID: ${result.id})`;
+            globalStatusText.textContent = `Segment ${segmentCounter} saved`;
           }
         } else {
-          console.error(`Error saving work session segment ${segmentCounter}: ${result.error}`);
+          error(`Error saving work session segment ${segmentCounter}: ${result.error}`);
           if (globalStatusText) {
-            globalStatusText.textContent = `Error saving segment ${segmentCounter}: ${result.error}`;
+            globalStatusText.textContent = `Error saving segment ${segmentCounter}`;
           }
         }
       } catch (saveError) {
-        console.error(`Error converting blob to buffer or saving segment ${segmentCounter}:`, saveError);
+        error(`Error converting blob to buffer or saving segment ${segmentCounter}:`, saveError);
         if (globalStatusText) {
-          globalStatusText.textContent = `Error saving segment ${segmentCounter}: ${saveError.message}`;
+          globalStatusText.textContent = `Error saving segment ${segmentCounter}`;
         }
       }
 
@@ -119,8 +125,7 @@ function startNewSegment() {
   };
 
   mediaRecorder.onstart = () => {
-    console.log('Recording started');
-    console.log('MediaRecorder state:', mediaRecorder.state);
+    log('Recording started');
     if (globalStatusText) {
       globalStatusText.textContent = 'Recording in progress...';
     }
@@ -667,16 +672,13 @@ async function startScreenRecording() {
     statusText.textContent = 'Requesting screen access...';
 
     // Get screen sources to capture the primary screen
-    console.log('Requesting screen sources...');
     const sources = await ipcRenderer.invoke('get-sources');
-    console.log('Available sources:', sources);
     if (sources.length === 0) {
       throw new Error('No screen sources available');
     }
 
     // Use the first screen source (usually the primary display)
     const selectedSourceId = sources[0].id;
-    console.log('Selected source ID:', selectedSourceId);
 
     // Verify that the source ID is valid
     if (!selectedSourceId) {
@@ -684,65 +686,54 @@ async function startScreenRecording() {
     }
 
     // Create constraints for screen capture using the modern format
+    // Optimized for performance: lower resolution and frame rate
     const constraints = {
       audio: false,
       video: {
         mandatory: {
           chromeMediaSource: 'desktop',
           chromeMediaSourceId: selectedSourceId,
-          minWidth: 854,
-          minHeight: 480,
-          maxWidth: 854,
-          maxHeight: 480,
-          minFrameRate: 23,
-          maxFrameRate: 23
+          minWidth: 640,
+          minHeight: 360,
+          maxWidth: 640,
+          maxHeight: 360,
+          minFrameRate: 10,
+          maxFrameRate: 10
         }
       }
     };
 
-    console.log('Attempting to get media stream with constraints:', constraints);
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    console.log('Screen stream obtained successfully', stream);
 
     // Verify that the stream has video tracks
     const videoTracks = stream.getVideoTracks();
-    console.log('Number of video tracks:', videoTracks.length);
     if (videoTracks.length === 0) {
       throw new Error('No video tracks in stream');
     }
 
     // Check if the track is actually a screen capture track
     const track = videoTracks[0];
-    console.log('Track settings:', track.getSettings());
-    console.log('Track constraints:', track.getConstraints());
+    log('Track settings:', track.getSettings());
 
-    // Create MediaRecorder with optimized options for better compatibility
+    // Create MediaRecorder with optimized options for better performance
     let recordingOptions = {
-      mimeType: 'video/webm;codecs=vp9',
-      videoBitsPerSecond: 800000, // Higher bitrate for improved quality at 480p
-      audioBitsPerSecond: 48000   // Higher audio bitrate for improved quality
+      mimeType: 'video/webm;codecs=vp8',
+      videoBitsPerSecond: 500000, // Reduced bitrate for better performance (500 kbps)
+      audioBitsPerSecond: 32000   // Lower audio bitrate since we don't record audio
     };
     if (!MediaRecorder.isTypeSupported(recordingOptions.mimeType)) {
-      console.warn('VP9 codec not supported, trying VP8');
+      warn('VP8 codec not supported, using default webm');
       recordingOptions = {
-        mimeType: 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 800000,
-        audioBitsPerSecond: 48000
+        mimeType: 'video/webm',
+        videoBitsPerSecond: 500000,
+        audioBitsPerSecond: 32000
       };
       if (!MediaRecorder.isTypeSupported(recordingOptions.mimeType)) {
-        console.warn('VP8 codec not supported, using default webm');
+        warn('WebM not supported, using default with bitrate settings');
         recordingOptions = {
-          mimeType: 'video/webm',
-          videoBitsPerSecond: 800000,
-          audioBitsPerSecond: 48000
+          videoBitsPerSecond: 500000,
+          audioBitsPerSecond: 32000
         };
-        if (!MediaRecorder.isTypeSupported(recordingOptions.mimeType)) {
-          console.warn('WebM not supported, using default with bitrate settings');
-          recordingOptions = {
-            videoBitsPerSecond: 800000,
-            audioBitsPerSecond: 48000
-          };
-        }
       }
     }
 
@@ -764,9 +755,7 @@ async function startScreenRecording() {
     }
 
   } catch (error) {
-    console.error('Error starting screen recording:', error);
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
+    error('Error starting screen recording:', error);
     statusText.textContent = `Screen recording error: ${error.message}`;
 
     // Clean up any existing media recorder if it exists
@@ -774,7 +763,7 @@ async function startScreenRecording() {
       try {
         mediaRecorder.stop();
       } catch (stopError) {
-        console.error('Error stopping media recorder:', stopError);
+        error('Error stopping media recorder:', stopError);
       }
     }
 
@@ -806,12 +795,12 @@ async function stopScreenRecording() {
 
     // Stop the current recording segment
     mediaRecorder.stop();
-    console.log('Recording stopped');
+    log('Recording stopped');
 
     // Wait briefly to ensure the onstop event processes the final segment
     await new Promise(resolve => setTimeout(resolve, 300));
   } else {
-    console.log('Cannot stop - recorder state:', mediaRecorder ? mediaRecorder.state : 'not initialized');
+    log('Cannot stop - recorder state:', mediaRecorder ? mediaRecorder.state : 'not initialized');
   }
 
   // Release the media stream if it exists
@@ -821,7 +810,7 @@ async function stopScreenRecording() {
       track.stop();
     });
     globalStream = null;
-    console.log('Released media stream');
+    log('Released media stream');
   }
 }
 
@@ -844,8 +833,7 @@ async function trackNetworkUsage() {
     window.networkUsageLastCheck = now;
 
     // Debug logging to see if values are being updated
-    console.log('Network Usage - Downloaded:', totalBytesDownloaded, 'Uploaded:', totalBytesUploaded);
-    console.log('Network Speeds - Download:', Math.round(downloadSpeed / 1024), 'KB/s Upload:', Math.round(uploadSpeed / 1024), 'KB/s');
+    log('Network Usage - Downloaded:', totalBytesDownloaded, 'Uploaded:', totalBytesUploaded);
 
     // Update UI elements
     if (downloadSpeedElement) {
@@ -861,7 +849,7 @@ async function trackNetworkUsage() {
       totalUploadedElement.textContent = `${Math.round(totalBytesUploaded / (1024 * 1024))} MB`;
     }
   } catch (error) {
-    console.warn('Error tracking network usage:', error);
+    warn('Error tracking network usage:', error);
   }
 }
 
@@ -875,22 +863,22 @@ function startNetworkUsageTracking() {
   // Update network usage immediately
   trackNetworkUsage();
 
-  // Then update every second
-  networkUsageInterval = setInterval(trackNetworkUsage, 1000);
+  // Then update every 2 seconds (reduced from 1 second for better performance)
+  networkUsageInterval = setInterval(trackNetworkUsage, 2000);
 }
 
 // Listen for window visibility changes from main process
 if (window.electronAPI) {
   window.electronAPI.onWindowShown(() => {
     isWindowVisible = true;
-    console.log('Window shown - continuing background operations');
+    log('Window shown - continuing background operations');
     // Resume network tracking when window is shown
     startNetworkUsageTracking();
   });
 
   window.electronAPI.onWindowHidden(() => {
     isWindowVisible = false;
-    console.log('Window hidden - continuing background operations');
+    log('Window hidden - continuing background operations');
 
     // Update status to reflect that recording is happening in background (only if checked in)
     if (isCheckedIn && !isOnBreak) {
@@ -906,12 +894,12 @@ if (window.electronAPI) {
 
 // Listen for stop-recording-before-logout event from main process
 ipcRenderer.on('stop-recording-before-logout', async () => {
-  console.log('Received stop-recording-before-logout event from main process');
+  log('Received stop-recording-before-logout event from main process');
 
   // Stop any ongoing recording
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     mediaRecorder.stop();
-    console.log('Stopped recording as requested by main process before logout');
+    log('Stopped recording as requested by main process before logout');
   }
 
   // Clear any ongoing timeouts/intervals
@@ -932,7 +920,7 @@ ipcRenderer.on('stop-recording-before-logout', async () => {
       track.stop();
     });
     globalStream = null;
-    console.log('Released media stream during logout');
+    log('Released media stream during logout');
   }
 
   // Reset state variables
@@ -946,12 +934,12 @@ ipcRenderer.on('stop-recording-before-logout', async () => {
 
 // Listen for reset-all-states-before-logout event from main process
 ipcRenderer.on('reset-all-states-before-logout', async () => {
-  console.log('Received reset-all-states-before-logout event from main process');
+  log('Received reset-all-states-before-logout event from main process');
 
   // Stop any ongoing recording
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     mediaRecorder.stop();
-    console.log('Stopped recording as requested by main process before logout');
+    log('Stopped recording as requested by main process before logout');
   }
 
   // Clear any ongoing timeouts/intervals
@@ -972,7 +960,7 @@ ipcRenderer.on('reset-all-states-before-logout', async () => {
       track.stop();
     });
     globalStream = null;
-    console.log('Released media stream during logout');
+    log('Released media stream during logout');
   }
 
   // Reset state variables

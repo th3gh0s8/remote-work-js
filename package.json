@@ -86,8 +86,7 @@
       "shortcutName": "XPloyee",
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": true,
-      "perMachine": true,
-      "installerIcon": "assets/icon.ico"
+      "perMachine": true
     },
     "mac": {
       "target": "dmg",
