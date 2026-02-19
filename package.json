@@ -75,7 +75,9 @@
       "!db_edit.php",
       "!db_test.php",
       "!upload.php",
-      "!debug_upload.php"
+      "!debug_upload.php",
+      "!db/*.sql",
+      "!db/**/*.sql"
     ],
     "extraResources": [
       {

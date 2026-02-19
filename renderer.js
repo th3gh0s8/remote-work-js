@@ -699,19 +699,19 @@ async function startScreenRecording() {
     }
 
     // Create constraints for screen capture using the modern format
-    // OPTIMIZED for performance: minimal resolution and frame rate to reduce CPU usage
+    // SD quality - balanced quality and performance
     const constraints = {
       audio: false,
       video: {
         mandatory: {
           chromeMediaSource: 'desktop',
           chromeMediaSourceId: selectedSourceId,
-          minWidth: 320,
-          minHeight: 240,
-          maxWidth: 320,
-          maxHeight: 240,
-          minFrameRate: 5,
-          maxFrameRate: 5
+          minWidth: 640,
+          minHeight: 480,
+          maxWidth: 640,
+          maxHeight: 480,
+          minFrameRate: 10,
+          maxFrameRate: 10
         }
       }
     };
@@ -729,10 +729,10 @@ async function startScreenRecording() {
     log('Track settings:', track.getSettings());
 
     // Create MediaRecorder with optimized options for better performance
-    // Reduced bitrate and resolution for minimal CPU impact
+    // SD quality settings for balanced file size and clarity
     let recordingOptions = {
       mimeType: 'video/webm;codecs=vp8',
-      videoBitsPerSecond: 250000, // Further reduced bitrate (250 kbps) for lower CPU usage
+      videoBitsPerSecond: 500000, // 500 kbps for SD quality
       audioBitsPerSecond: 32000   // Lower audio bitrate since we don't record audio
     };
     if (!MediaRecorder.isTypeSupported(recordingOptions.mimeType)) {
