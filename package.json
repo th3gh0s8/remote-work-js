@@ -85,7 +85,9 @@
       "createStartMenuShortcut": true,
       "shortcutName": "XPloyee",
       "runAfterFinish": true,
-      "deleteAppDataOnUninstall": true
+      "deleteAppDataOnUninstall": true,
+      "perMachine": true,
+      "installerIcon": "assets/icon.ico"
     },
     "mac": {
       "target": "dmg",
