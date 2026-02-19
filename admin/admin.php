@@ -1637,12 +1637,23 @@ function showDashboard() {
             }
             
             // Update every 30 seconds (optimized from 10s to reduce server load)
-            setInterval(updateUserStatuses, 30000);
+            // But disable auto-refresh when watching videos to prevent interruption
+            const isWatchingVideo = window.location.href.includes('action=watch_live') || 
+                                   window.location.href.includes('action=watch_combined') ||
+                                   document.querySelector('.video-player');
             
-            // Also do full refresh every 5 minutes to catch any other changes
-            setInterval(function() {
-                location.reload();
-            }, 300000); // 5 minutes
+            if (!isWatchingVideo) {
+                setInterval(updateUserStatuses, 30000);
+                
+                // Also do full refresh every 5 minutes to catch any other changes
+                setInterval(function() {
+                    location.reload();
+                }, 300000); // 5 minutes
+                
+                console.log('Auto-refresh enabled for dashboard');
+            } else {
+                console.log('Auto-refresh disabled - video playback mode');
+            }
 
             function switchTab(tabName) {
                 // Hide all tab contents
@@ -5922,12 +5933,37 @@ function showLiveWatching() {
                                 // Update status to notify user of new video
                                 if (isPlaying) {
                                     statusIndicator.className = 'status-indicator status-playing';
-                                    statusIndicator.textContent = 'New video available: ' + latestVideo.imgName + ' (will play next)';
+                                    statusIndicator.textContent = '🆕 New video uploaded: ' + latestVideo.imgName + ' (playing next...)';
+                                    
+                                    // If currently playing the oldest video, switch to new video immediately
+                                    if (currentIndex === playlist.length - 1 && playlist.length > 1) {
+                                        // User is watching the end of playlist, switch to new video
+                                        setTimeout(() => {
+                                            loadVideo(0);
+                                            videoPlayer.play().then(() => {
+                                                isPlaying = true;
+                                                statusIndicator.textContent = '🆕 Playing new video: ' + playlist[0].imgName;
+                                            }).catch(e => console.log('Autoplay prevented: ', e));
+                                        }, 2000);
+                                    }
                                 } else {
-                                    // If not playing, update immediately
+                                    // If not playing, load the new video and autoplay
                                     if (currentIndex === 0) {
                                         loadVideo(0);
                                         currentLatestVideo = playlist[0]; // Update reference
+                                        
+                                        // Autoplay the new video
+                                        setTimeout(() => {
+                                            videoPlayer.play().then(() => {
+                                                isPlaying = true;
+                                                statusIndicator.className = 'status-indicator status-playing';
+                                                statusIndicator.textContent = '🆕 New video uploaded: ' + playlist[0].imgName;
+                                                playBtn.textContent = 'Resume';
+                                            }).catch(e => {
+                                                console.log('Autoplay prevented: ', e);
+                                                statusIndicator.textContent = 'New video available - click Play';
+                                            });
+                                        }, 500);
                                     }
                                 }
                             }
