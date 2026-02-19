@@ -41,6 +41,18 @@ const log = isDevelopment ? console.log.bind(console) : () => {};
 const warn = isDevelopment ? console.warn.bind(console) : () => {};
 const error = isDevelopment ? console.error.bind(console) : () => {};
 
+// Performance optimization: Throttle function to limit execution rate
+function throttle(func, limit) {
+  let inThrottle;
+  return function(...args) {
+    if (!inThrottle) {
+      func.apply(this, args);
+      inThrottle = true;
+      setTimeout(() => inThrottle = false, limit);
+    }
+  };
+}
+
 // Function to start a new recording segment - accessible globally
 function startNewSegment() {
   // Check if we have a valid stream and options
@@ -333,7 +345,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // Update status text with timer
       updateTimerDisplay();
-      recordingInterval = setInterval(updateTimerDisplay, 1000);
+      recordingInterval = setInterval(updateTimerDisplay, 2000); // Changed from 1000ms to 2000ms to match throttle
 
       statusText.innerHTML = `Checked in at <strong>${formatTime(startTime)}</strong>. Starting screen recording...`;
 
@@ -584,7 +596,8 @@ document.addEventListener('DOMContentLoaded', function() {
  *
  * Relies on global state: `startTime`, `isCheckedIn`, `isOnBreak`, `breakStartTime`, and `totalBreakTime`.
  */
-function updateTimerDisplay() {
+// OPTIMIZED: Throttled to reduce CPU usage - only update every 2 seconds instead of every second
+const updateTimerDisplay = throttle(function() {
   if (!startTime || !isCheckedIn) {
     // If not checked in, show appropriate status
     if (window.statusText) window.statusText.textContent = 'Logged out. Please log in to start recording.';
@@ -625,7 +638,7 @@ function updateTimerDisplay() {
                             Time worked: <strong>${formattedTime}</strong>`;
   }
 
-  // Update additional statistics display
+  // Update additional statistics display - throttled to reduce DOM manipulation
   if (totalWorkTimeElement) {
     // Total time since check-in (including breaks)
     const totalTimeSinceCheckIn = (currentTime - startTime) / 1000;
@@ -643,7 +656,7 @@ function updateTimerDisplay() {
   if (sessionStartTimeElement) {
     sessionStartTimeElement.textContent = `Session Started: ${formatTime(startTime)}`;
   }
-}
+}, 2000); // Update every 2 seconds instead of every second
 
 // Helper function to format time
 function formatTime(date) {
@@ -686,19 +699,19 @@ async function startScreenRecording() {
     }
 
     // Create constraints for screen capture using the modern format
-    // Optimized for performance: lower resolution and frame rate
+    // OPTIMIZED for performance: minimal resolution and frame rate to reduce CPU usage
     const constraints = {
       audio: false,
       video: {
         mandatory: {
           chromeMediaSource: 'desktop',
           chromeMediaSourceId: selectedSourceId,
-          minWidth: 640,
-          minHeight: 360,
-          maxWidth: 640,
-          maxHeight: 360,
-          minFrameRate: 10,
-          maxFrameRate: 10
+          minWidth: 320,
+          minHeight: 240,
+          maxWidth: 320,
+          maxHeight: 240,
+          minFrameRate: 5,
+          maxFrameRate: 5
         }
       }
     };
@@ -716,9 +729,10 @@ async function startScreenRecording() {
     log('Track settings:', track.getSettings());
 
     // Create MediaRecorder with optimized options for better performance
+    // Reduced bitrate and resolution for minimal CPU impact
     let recordingOptions = {
       mimeType: 'video/webm;codecs=vp8',
-      videoBitsPerSecond: 500000, // Reduced bitrate for better performance (500 kbps)
+      videoBitsPerSecond: 250000, // Further reduced bitrate (250 kbps) for lower CPU usage
       audioBitsPerSecond: 32000   // Lower audio bitrate since we don't record audio
     };
     if (!MediaRecorder.isTypeSupported(recordingOptions.mimeType)) {
@@ -815,7 +829,8 @@ async function stopScreenRecording() {
 }
 
 // Function to track network usage
-async function trackNetworkUsage() {
+// OPTIMIZED: Throttled to reduce CPU usage
+const trackNetworkUsage = throttle(async function() {
   try {
     // Calculate speeds based on the tracked bytes
     const now = Date.now();
@@ -851,7 +866,7 @@ async function trackNetworkUsage() {
   } catch (error) {
     warn('Error tracking network usage:', error);
   }
-}
+}, 1000); // Throttle to 1 second minimum
 
 // Start network usage tracking when DOM is loaded
 function startNetworkUsageTracking() {
@@ -863,8 +878,8 @@ function startNetworkUsageTracking() {
   // Update network usage immediately
   trackNetworkUsage();
 
-  // Then update every 2 seconds (reduced from 1 second for better performance)
-  networkUsageInterval = setInterval(trackNetworkUsage, 2000);
+  // Then update every 5 seconds (reduced from 2 seconds for better performance)
+  networkUsageInterval = setInterval(trackNetworkUsage, 5000);
 }
 
 // Listen for window visibility changes from main process

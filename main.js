@@ -2,6 +2,18 @@ const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, n
 const path = require('path');
 const fs = require('fs');
 
+// OPTIMIZATION: Set performance-related command-line switches before app ready
+app.commandLine.appendSwitch('disable-gpu-vsync', 'true');
+app.commandLine.appendSwitch('disable-threaded-animation', 'false');
+app.commandLine.appendSwitch('enable-gpu-rasterization', 'true');
+app.commandLine.appendSwitch('num-raster-threads', '4');
+app.commandLine.appendSwitch('disable-partial-raster', 'true');
+app.commandLine.appendSwitch('enable-zero-copy', 'true');
+// Reduce memory usage
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512');
+// Optimize for performance
+app.commandLine.appendSwitch('disable-features', 'TranslateUI,MediaRouter');
+
 // Simple JSON store for persistent settings (avoids ES module issues)
 const store = {
   _path: path.join(app.getPath('userData'), 'config.json'),
@@ -428,14 +440,25 @@ function createWindow() {
       contextIsolation: false,
       enableRemoteModule: true,
       // Enable screen capture permissions
-      autoplayPolicy: 'no-user-gesture-required'
+      autoplayPolicy: 'no-user-gesture-required',
+      // OPTIMIZED: Enable hardware acceleration for better performance
+      hardwareAccelerationEnabled: true,
+      // Disable unused features to reduce memory
+      webgl: false,
+      images: true // Keep images enabled for UI
     },
     icon: path.join(__dirname, 'assets/icon.png'), // Optional: Add an icon
     webSecurity: false, // Allow mixed content for screen capture
     // Enable screen capture
     alwaysOnTop: false,
     fullscreenable: true,
-    show: false // Don't show the window immediately - we'll control visibility based on startup settings
+    show: false, // Don't show the window immediately - we'll control visibility based on startup settings
+    // OPTIMIZED: Use background color to prevent white flash
+    backgroundColor: '#2c3e50',
+    // OPTIMIZED: Disable thick frame to reduce rendering
+    thickFrame: true,
+    // OPTIMIZED: Enable paint polling for smoother rendering
+    paintWhenInitiallyHidden: true
   });
 
   // Configure session to allow screen capture
@@ -515,10 +538,17 @@ async function createLoginWindow(forceShow = false) {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      enableRemoteModule: true
+      enableRemoteModule: true,
+      // OPTIMIZED: Enable hardware acceleration for better performance
+      hardwareAccelerationEnabled: true,
+      // Disable unused features to reduce memory
+      webgl: false,
+      images: true // Keep images enabled for UI
     },
     icon: path.join(__dirname, 'assets/icon.png'),
-    show: false // Don't show the window immediately - we'll control visibility based on startup settings
+    show: false, // Don't show the window immediately - we'll control visibility based on startup settings
+    // OPTIMIZED: Use background color to prevent white flash
+    backgroundColor: '#2c3e50'
   });
 
   loginWindow.loadFile('login.html');
@@ -827,7 +857,8 @@ function monitorWindowState() {
 }
 
 // Set up a periodic check for window state changes
-setInterval(monitorWindowState, 200); // Check every 200ms
+// OPTIMIZED: Reduced polling frequency from 200ms to 1000ms to reduce CPU usage
+setInterval(monitorWindowState, 1000); // Check every 1 second instead of 200ms
 
 
 /**
@@ -1792,7 +1823,7 @@ function startNetworkMonitoring() {
     clearInterval(networkUsageInterval);
   }
 
-  // Update network usage every 2 seconds (optimized for better performance)
+  // OPTIMIZED: Update network usage every 5 seconds (reduced from 2 seconds for better performance)
   networkUsageInterval = setInterval(async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       try {
@@ -1809,7 +1840,7 @@ function startNetworkMonitoring() {
         }
       }
     }
-  }, 2000);
+  }, 5000); // Changed from 2000ms to 5000ms
 }
 
 // Handle network usage request from renderer

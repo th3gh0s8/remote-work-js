@@ -23,6 +23,9 @@
         margin: 0;
         padding: 0;
         overflow: hidden;
+        /* OPTIMIZATION: Hardware accelerate the body layer */
+        will-change: auto;
+        transform: translateZ(0);
       }
 
       .container {
@@ -78,6 +81,9 @@
         box-shadow: 0 0 10px rgba(231, 76, 60, 0.7);
         animation: pulse 1.5s infinite;
         transition: all 0.3s ease;
+        /* OPTIMIZATION: Hardware accelerate the animation */
+        will-change: transform;
+        transform: translateZ(0);
       }
 
       .activity-indicator.active {
@@ -376,9 +382,9 @@
       }
 
       @keyframes pulse {
-        0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
-        70% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
+        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
+        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
       }
 
       /* Responsive design */
