@@ -103,6 +103,26 @@
         gap: 15px;
       }
 
+      /* User Info Display Styles */
+      .user-info-display {
+        background: rgba(255, 255, 255, 0.15);
+        padding: 8px 14px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        backdrop-filter: blur(5px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      .logged-in-user {
+        color: white;
+        font-size: 0.9rem;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+      }
+
       .logout-btn {
         background: linear-gradient(135deg, #e74c3c, #c0392b);
         color: white;
@@ -450,11 +470,24 @@
           gap: 10px;
         }
 
-        .title {
-          font-size: 1.3rem;
+        .header-actions {
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 10px;
+        }
+
+        .user-info-display {
+          order: 1;
+          width: 100%;
+          justify-content: center;
+        }
+
+        .logout-btn {
+          order: 2;
         }
 
         .logo {
+          order: 3;
           align-self: center;
           height: 30px;
         }
@@ -633,6 +666,10 @@
           <div id="activity-badge" class="activity-indicator" title="Activity Status"></div>
         </div>
         <div class="header-actions">
+          <!-- User Info Display -->
+          <div id="user-info-display" class="user-info-display">
+            <span id="logged-in-user" class="logged-in-user">Not logged in</span>
+          </div>
           <button id="logout-btn" class="logout-btn">Logout</button>
           <a href="https://powersoftt.com/" target="_blank">
             <img

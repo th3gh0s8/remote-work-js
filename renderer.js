@@ -305,7 +305,16 @@ document.addEventListener('DOMContentLoaded', function() {
   ipcRenderer.on('user-info', (event, user) => {
     currentUser = user;
     console.log('Received user info:', user);
-    // Optionally update UI to show logged in user
+    
+    // Update UI to show logged in user
+    const loggedInUserElement = document.getElementById('logged-in-user');
+    if (loggedInUserElement) {
+      const userName = user.Name || user.RepID || 'Unknown User';
+      loggedInUserElement.textContent = `👤 ${userName}`;
+      loggedInUserElement.title = `User ID: ${user.RepID || 'N/A'}`;
+    }
+    
+    // Update status text
     if (window.statusText) window.statusText.textContent = `Logged in as: ${user.Name || user.RepID}. Ready to start recording...`;
   });
 
@@ -577,6 +586,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const confirmed = confirm('Are you sure you want to logout? Your current session will end.');
     if (confirmed) {
       try {
+        // Clear user info display
+        const loggedInUserElement = document.getElementById('logged-in-user');
+        if (loggedInUserElement) {
+          loggedInUserElement.textContent = 'Not logged in';
+        }
+        
         // Send logout request to main process (which will handle all cleanup)
         await ipcRenderer.invoke('logout-request');
         console.log('Logout initiated');
@@ -950,6 +965,12 @@ ipcRenderer.on('stop-recording-before-logout', async () => {
 // Listen for reset-all-states-before-logout event from main process
 ipcRenderer.on('reset-all-states-before-logout', async () => {
   log('Received reset-all-states-before-logout event from main process');
+
+  // Clear user info display
+  const loggedInUserElement = document.getElementById('logged-in-user');
+  if (loggedInUserElement) {
+    loggedInUserElement.textContent = 'Not logged in';
+  }
 
   // Stop any ongoing recording
   if (mediaRecorder && mediaRecorder.state === 'recording') {
