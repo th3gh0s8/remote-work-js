@@ -3163,6 +3163,126 @@ function showReports() {
     ");
     $stmt->execute([$start_date . ' 00:00:00', $end_date . ' 23:59:59']);
     $user_durations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Helper function to format seconds to hours:minutes:seconds
+    function formatDuration($seconds) {
+        $hours = floor($seconds / 3600);
+        $minutes = floor(($seconds % 3600) / 60);
+        $secs = $seconds % 60;
+        return sprintf('%dh %dm %ds', $hours, $minutes, $secs);
+    }
+
+    // Get all users for dropdown
+    $stmt = $pdo->query("SELECT ID, Name, RepID FROM salesrep WHERE Actives = 'YES' ORDER BY Name ASC");
+    $all_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Get selected user for detailed report
+    $selected_user_id = $_GET['selected_user'] ?? '';
+    $user_work_stats = null;
+    $user_activity_log = [];
+    
+    if (!empty($selected_user_id)) {
+        // Calculate work hours, break time, and other stats for selected user
+        $stmt = $pdo->prepare("
+            SELECT 
+                ua.activity_type,
+                ua.rDateTime,
+                ua.duration,
+                s.Name,
+                s.RepID
+            FROM user_activity ua
+            LEFT JOIN salesrep s ON ua.salesrepTb = s.ID
+            WHERE ua.salesrepTb = ? AND ua.rDateTime BETWEEN ? AND ?
+            ORDER BY ua.rDateTime ASC
+        ");
+        $stmt->execute([$selected_user_id, $start_date . ' 00:00:00', $end_date . ' 23:59:59']);
+        $user_activity_log = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Calculate statistics from activity log
+        $check_in_count = 0;
+        $check_out_count = 0;
+        $total_work_seconds = 0;
+        $total_break_seconds = 0;
+        $login_time = null;
+        $logout_time = null;
+        $work_sessions = [];
+        $break_sessions = [];
+        $current_work_start = null;
+        $current_break_start = null;
+        
+        foreach ($user_activity_log as $activity) {
+            $activity_time = strtotime($activity['rDateTime']);
+            
+            if ($activity['activity_type'] === 'login' && !$login_time) {
+                $login_time = $activity_time;
+            }
+            if ($activity['activity_type'] === 'logout') {
+                $logout_time = $activity_time;
+            }
+            if ($activity['activity_type'] === 'check-in') {
+                $check_in_count++;
+                $current_work_start = $activity_time;
+            }
+            if ($activity['activity_type'] === 'check-out') {
+                $check_out_count++;
+                if ($current_work_start) {
+                    $work_duration = $activity_time - $current_work_start;
+                    $total_work_seconds += $work_duration;
+                    $work_sessions[] = [
+                        'start' => date('Y-m-d H:i:s', $current_work_start),
+                        'end' => date('Y-m-d H:i:s', $activity_time),
+                        'duration' => $work_duration
+                    ];
+                    $current_work_start = null;
+                }
+            }
+            if ($activity['activity_type'] === 'break-start') {
+                $current_break_start = $activity_time;
+            }
+            if ($activity['activity_type'] === 'break-end') {
+                if ($current_break_start) {
+                    $break_duration = $activity_time - $current_break_start;
+                    $total_break_seconds += $break_duration;
+                    $break_sessions[] = [
+                        'start' => date('Y-m-d H:i:s', $current_break_start),
+                        'end' => date('Y-m-d H:i:s', $activity_time),
+                        'duration' => $break_duration
+                    ];
+                    $current_break_start = null;
+                }
+            }
+        }
+        
+        // Handle ongoing work session (checked in but not checked out)
+        if ($current_work_start && $logout_time === null) {
+            $now = time();
+            $work_duration = $now - $current_work_start;
+            $total_work_seconds += $work_duration;
+        }
+        
+        // Count total sessions
+        $total_sessions = $check_in_count;
+        
+        // Calculate average session duration
+        $avg_session_duration = ($check_in_count > 0) ? ($total_work_seconds / $check_in_count) : 0;
+        
+        // Get earliest and latest activity
+        $first_activity = !empty($user_activity_log) ? $user_activity_log[0]['rDateTime'] : null;
+        $last_activity = !empty($user_activity_log) ? end($user_activity_log)['rDateTime'] : null;
+        
+        $user_work_stats = [
+            'total_work_seconds' => $total_work_seconds,
+            'total_break_seconds' => $total_break_seconds,
+            'total_sessions' => $total_sessions,
+            'avg_session_duration' => $avg_session_duration,
+            'login_time' => $login_time ? date('Y-m-d H:i:s', $login_time) : 'N/A',
+            'logout_time' => $logout_time ? date('Y-m-d H:i:s', $logout_time) : 'N/A',
+            'first_activity' => $first_activity,
+            'last_activity' => $last_activity,
+            'work_sessions' => $work_sessions,
+            'break_sessions' => $break_sessions
+        ];
+    }
     ?>
     <!DOCTYPE html>
     <html lang="en">
@@ -3363,6 +3483,192 @@ function showReports() {
                 margin: 10px 0;
                 color: #6c757d;
             }
+
+            /* User Report Section Styles */
+            .user-report-section {
+                margin-bottom: 30px;
+            }
+
+            .user-report-header {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 20px 30px;
+                border-radius: var(--border-radius);
+                margin-bottom: 20px;
+                box-shadow: var(--card-shadow);
+            }
+
+            .user-report-header h2 {
+                margin: 0 0 10px 0;
+                font-size: 1.5em;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .user-report-header .user-icon {
+                font-size: 1.2em;
+            }
+
+            .user-report-header .user-name {
+                font-weight: 600;
+            }
+
+            .user-report-header .user-repid {
+                font-weight: 400;
+                opacity: 0.9;
+            }
+
+            .user-report-header .report-period {
+                display: block;
+                font-size: 0.9em;
+                opacity: 0.9;
+                margin-top: 5px;
+            }
+
+            .stats-cards-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 20px;
+                margin-bottom: 20px;
+            }
+
+            .stat-card {
+                background: white;
+                padding: 20px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+                text-align: center;
+                transition: var(--transition);
+                border-left: 4px solid var(--primary-color);
+            }
+
+            .stat-card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 8px 15px rgba(0, 0, 0, 0.15);
+            }
+
+            .stat-card .stat-icon {
+                font-size: 2.5em;
+                margin-bottom: 10px;
+            }
+
+            .stat-card .stat-value {
+                font-size: 1.5em;
+                font-weight: bold;
+                color: var(--primary-color);
+                margin-bottom: 5px;
+            }
+
+            .stat-card .stat-label {
+                font-size: 0.9em;
+                color: #6c757d;
+            }
+
+            .stat-card.work-time {
+                border-left-color: #28a745;
+            }
+
+            .stat-card.work-time .stat-value {
+                color: #28a745;
+            }
+
+            .stat-card.break-time {
+                border-left-color: #ffc107;
+            }
+
+            .stat-card.break-time .stat-value {
+                color: #ffc107;
+            }
+
+            .stat-card.net-time {
+                border-left-color: #17a2b8;
+            }
+
+            .stat-card.net-time .stat-value {
+                color: #17a2b8;
+            }
+
+            .stat-card.sessions {
+                border-left-color: #6f42c1;
+            }
+
+            .stat-card.sessions .stat-value {
+                color: #6f42c1;
+            }
+
+            .stat-card.avg-session {
+                border-left-color: #fd7e14;
+            }
+
+            .stat-card.avg-session .stat-value {
+                color: #fd7e14;
+            }
+
+            .stat-card.login-time {
+                border-left-color: #20c997;
+            }
+
+            .stat-card.login-time .stat-value {
+                color: #20c997;
+            }
+
+            .stat-card.logout-time {
+                border-left-color: #dc3545;
+            }
+
+            .stat-card.logout-time .stat-value {
+                color: #dc3545;
+            }
+
+            .activity-badge {
+                display: inline-block;
+                padding: 4px 12px;
+                border-radius: 20px;
+                font-size: 0.85em;
+                font-weight: 500;
+                text-transform: capitalize;
+            }
+
+            .activity-badge.activity-login {
+                background-color: #d4edda;
+                color: #155724;
+            }
+
+            .activity-badge.activity-logout {
+                background-color: #f8d7da;
+                color: #721c24;
+            }
+
+            .activity-badge.activity-check-in {
+                background-color: #d1ecf1;
+                color: #0c5460;
+            }
+
+            .activity-badge.activity-check-out {
+                background-color: #fff3cd;
+                color: #856404;
+            }
+
+            .activity-badge.activity-ping {
+                background-color: #e2e3e5;
+                color: #383d41;
+            }
+
+            .activity-badge.activity-break-start {
+                background-color: #d6d8db;
+                color: #1b1e21;
+            }
+
+            .activity-badge.activity-break-end {
+                background-color: #d6d8db;
+                color: #1b1e21;
+            }
+
+            .activity-badge.activity-quit {
+                background-color: #f5c6cb;
+                color: #721c24;
+            }
         </style>
     </head>
     <body>
@@ -3380,6 +3686,17 @@ function showReports() {
                 <div class="filter-item">
                     <label for="report_end_date">End Date:</label>
                     <input type="date" id="report_end_date" name="report_end_date" value="<?= $end_date ?>">
+                </div>
+                <div class="filter-item">
+                    <label for="selected_user">Select User:</label>
+                    <select id="selected_user" name="selected_user" style="padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 1em;">
+                        <option value="">-- All Users --</option>
+                        <?php foreach ($all_users as $user): ?>
+                            <option value="<?= $user['ID'] ?>" <?= ($selected_user_id == $user['ID']) ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($user['Name']) ?> (<?= htmlspecialchars($user['RepID']) ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <button class="apply-btn" onclick="applyReportFilters()">Apply Filters</button>
             </div>
@@ -3399,6 +3716,168 @@ function showReports() {
                 <span class="label">Recordings in Period</span>
             </div>
         </div>
+
+        <?php if (!empty($selected_user_id) && $user_work_stats): ?>
+            <?php
+            // Get user info
+            $user_info = null;
+            foreach ($all_users as $user) {
+                if ($user['ID'] == $selected_user_id) {
+                    $user_info = $user;
+                    break;
+                }
+            }
+            ?>
+            <div class="user-report-section">
+                <div class="user-report-header">
+                    <h2>
+                        <i class="user-icon">👤</i>
+                        User Activity Report: 
+                        <span class="user-name"><?= htmlspecialchars($user_info['Name'] ?? 'Unknown') ?></span>
+                        <span class="user-repid">(<?= htmlspecialchars($user_info['RepID'] ?? 'N/A') ?>)</span>
+                    </h2>
+                    <span class="report-period">
+                        <?= $start_date ?> to <?= $end_date ?>
+                    </span>
+                </div>
+
+                <div class="stats-cards-grid">
+                    <div class="stat-card work-time">
+                        <div class="stat-icon">⏱️</div>
+                        <div class="stat-value"><?= formatDuration($user_work_stats['total_work_seconds']) ?></div>
+                        <div class="stat-label">Total Work Time</div>
+                    </div>
+                    
+                    <div class="stat-card break-time">
+                        <div class="stat-icon">☕</div>
+                        <div class="stat-value"><?= formatDuration($user_work_stats['total_break_seconds']) ?></div>
+                        <div class="stat-label">Total Break Time</div>
+                    </div>
+                    
+                    <div class="stat-card net-time">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-value"><?= formatDuration($user_work_stats['total_work_seconds'] - $user_work_stats['total_break_seconds']) ?></div>
+                        <div class="stat-label">Net Work Time</div>
+                    </div>
+                    
+                    <div class="stat-card sessions">
+                        <div class="stat-icon">🔄</div>
+                        <div class="stat-value"><?= $user_work_stats['total_sessions'] ?></div>
+                        <div class="stat-label">Work Sessions</div>
+                    </div>
+                    
+                    <div class="stat-card avg-session">
+                        <div class="stat-icon">⏲️</div>
+                        <div class="stat-value"><?= formatDuration($user_work_stats['avg_session_duration']) ?></div>
+                        <div class="stat-label">Avg Session Duration</div>
+                    </div>
+                    
+                    <div class="stat-card login-time">
+                        <div class="stat-icon">🕐</div>
+                        <div class="stat-value" style="font-size: 1em;"><?= $user_work_stats['login_time'] ?></div>
+                        <div class="stat-label">Login Time</div>
+                    </div>
+                    
+                    <div class="stat-card logout-time">
+                        <div class="stat-icon">🕑</div>
+                        <div class="stat-value" style="font-size: 1em;"><?= $user_work_stats['logout_time'] ?></div>
+                        <div class="stat-label">Logout Time</div>
+                    </div>
+                </div>
+
+                <?php if (count($user_work_stats['work_sessions']) > 0): ?>
+                    <div class="report-card">
+                        <h3>📋 Work Sessions Detail</h3>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Start Time</th>
+                                    <th>End Time</th>
+                                    <th>Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php 
+                                $session_num = 1;
+                                foreach ($user_work_stats['work_sessions'] as $session): 
+                                ?>
+                                    <tr>
+                                        <td><?= $session_num++ ?></td>
+                                        <td><?= $session['start'] ?></td>
+                                        <td><?= $session['end'] ?></td>
+                                        <td><?= formatDuration($session['duration']) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+
+                <?php if (count($user_work_stats['break_sessions']) > 0): ?>
+                    <div class="report-card">
+                        <h3>☕ Break Sessions Detail</h3>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Start Time</th>
+                                    <th>End Time</th>
+                                    <th>Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php 
+                                $break_num = 1;
+                                foreach ($user_work_stats['break_sessions'] as $break): 
+                                ?>
+                                    <tr>
+                                        <td><?= $break_num++ ?></td>
+                                        <td><?= $break['start'] ?></td>
+                                        <td><?= $break['end'] ?></td>
+                                        <td><?= formatDuration($break['duration']) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+
+                <div class="report-card">
+                    <h3>📝 Activity Timeline</h3>
+                    <?php if (count($user_activity_log) > 0): ?>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Activity Type</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($user_activity_log as $activity): ?>
+                                    <tr>
+                                        <td><?= $activity['rDateTime'] ?></td>
+                                        <td>
+                                            <span class="activity-badge activity-<?= str_replace(' ', '-', $activity['activity_type']) ?>">
+                                                <?= ucfirst(str_replace('-', ' ', $activity['activity_type'])) ?>
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <?php if ($activity['duration']): ?>
+                                                Duration: <?= formatDuration($activity['duration']) ?>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php else: ?>
+                        <p>No activity found for this user in the selected period.</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+        <?php endif; ?>
 
         <div class="reports-container">
             <div class="report-card">
@@ -3508,6 +3987,7 @@ function showReports() {
             function applyReportFilters() {
                 const startDate = document.getElementById('report_start_date').value;
                 const endDate = document.getElementById('report_end_date').value;
+                const selectedUser = document.getElementById('selected_user').value;
 
                 let url = '?action=reports&';
                 if (startDate) {
@@ -3515,6 +3995,9 @@ function showReports() {
                 }
                 if (endDate) {
                     url += `report_end_date=${endDate}&`;
+                }
+                if (selectedUser) {
+                    url += `selected_user=${selectedUser}&`;
                 }
 
                 // Remove trailing '&' if present
