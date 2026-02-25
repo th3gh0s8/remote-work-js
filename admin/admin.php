@@ -3669,6 +3669,124 @@ function showReports() {
                 background-color: #f5c6cb;
                 color: #721c24;
             }
+
+            /* User Search Styles */
+            .user-search-container {
+                position: relative;
+                width: 100%;
+            }
+
+            .user-search-input {
+                width: 100%;
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                font-size: 1em;
+                box-sizing: border-box;
+            }
+
+            .user-search-input:focus {
+                outline: none;
+                border-color: var(--primary-color);
+                box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+            }
+
+            .user-dropdown {
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                max-height: 250px;
+                overflow-y: auto;
+                z-index: 1000;
+                display: none;
+                margin-top: 5px;
+            }
+
+            .user-dropdown.show {
+                display: block;
+            }
+
+            .user-option {
+                padding: 10px 15px;
+                cursor: pointer;
+                border-bottom: 1px solid #f0f0f0;
+                transition: background-color 0.2s;
+            }
+
+            .user-option:last-child {
+                border-bottom: none;
+            }
+
+            .user-option:hover {
+                background-color: #f0f5ff;
+            }
+
+            .user-option.selected {
+                background-color: var(--primary-color);
+                color: white;
+            }
+
+            .user-option .user-name {
+                font-weight: 600;
+                display: block;
+            }
+
+            .user-option .user-repid {
+                font-size: 0.85em;
+                color: #6c757d;
+                display: block;
+                margin-top: 2px;
+            }
+
+            .user-option.selected .user-repid {
+                color: rgba(255, 255, 255, 0.9);
+            }
+
+            .no-results {
+                padding: 15px;
+                text-align: center;
+                color: #6c757d;
+                font-style: italic;
+            }
+
+            .selected-user-display {
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                background-color: #f8f9fa;
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 1em;
+            }
+
+            .selected-user-display:hover {
+                background-color: #e9ecef;
+            }
+
+            .selected-user-display .clear-btn {
+                background: none;
+                border: none;
+                color: #dc3545;
+                cursor: pointer;
+                font-size: 1.2em;
+                padding: 0 5px;
+                line-height: 1;
+            }
+
+            .selected-user-display .clear-btn:hover {
+                color: #c82333;
+            }
+
+            #selected_user_id {
+                display: none;
+            }
         </style>
     </head>
     <body>
@@ -3688,15 +3806,16 @@ function showReports() {
                     <input type="date" id="report_end_date" name="report_end_date" value="<?= $end_date ?>">
                 </div>
                 <div class="filter-item">
-                    <label for="selected_user">Select User:</label>
-                    <select id="selected_user" name="selected_user" style="padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 1em;">
-                        <option value="">-- All Users --</option>
-                        <?php foreach ($all_users as $user): ?>
-                            <option value="<?= $user['ID'] ?>" <?= ($selected_user_id == $user['ID']) ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($user['Name']) ?> (<?= htmlspecialchars($user['RepID']) ?>)
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
+                    <label for="user_search">Select User:</label>
+                    <div class="user-search-container">
+                        <input type="text" 
+                               id="user_search" 
+                               class="user-search-input" 
+                               placeholder="Search by Rep ID or Name..."
+                               autocomplete="off">
+                        <input type="hidden" id="selected_user_id" name="selected_user" value="<?= htmlspecialchars($selected_user_id) ?>">
+                        <div id="user_dropdown" class="user-dropdown"></div>
+                    </div>
                 </div>
                 <button class="apply-btn" onclick="applyReportFilters()">Apply Filters</button>
             </div>
@@ -3984,10 +4103,117 @@ function showReports() {
         </div>
 
         <script>
+            // User data for search
+            const allUsers = <?= json_encode($all_users) ?>;
+            const selectedUserId = '<?= htmlspecialchars($selected_user_id) ?>';
+            
+            // Initialize user search
+            document.addEventListener('DOMContentLoaded', function() {
+                const searchInput = document.getElementById('user_search');
+                const dropdown = document.getElementById('user_dropdown');
+                const hiddenInput = document.getElementById('selected_user_id');
+                
+                // Set initial value if user is selected
+                if (selectedUserId) {
+                    const selectedUser = allUsers.find(u => u.ID === selectedUserId);
+                    if (selectedUser) {
+                        searchInput.value = `${selectedUser.Name} (${selectedUser.RepID})`;
+                    }
+                }
+                
+                // Search input event
+                searchInput.addEventListener('input', function() {
+                    const searchTerm = this.value.trim().toLowerCase();
+                    
+                    if (searchTerm.length === 0) {
+                        dropdown.classList.remove('show');
+                        return;
+                    }
+                    
+                    // Filter users by Rep ID or Name
+                    const filteredUsers = allUsers.filter(user => {
+                        const nameMatch = user.Name.toLowerCase().includes(searchTerm);
+                        const repIdMatch = user.RepID.toLowerCase().includes(searchTerm);
+                        return nameMatch || repIdMatch;
+                    });
+                    
+                    // Render dropdown
+                    renderDropdown(filteredUsers);
+                });
+                
+                // Focus event - show all users
+                searchInput.addEventListener('focus', function() {
+                    if (this.value.trim().length > 0) {
+                        const searchTerm = this.value.trim().toLowerCase();
+                        const filteredUsers = allUsers.filter(user => {
+                            const nameMatch = user.Name.toLowerCase().includes(searchTerm);
+                            const repIdMatch = user.RepID.toLowerCase().includes(searchTerm);
+                            return nameMatch || repIdMatch;
+                        });
+                        renderDropdown(filteredUsers);
+                    } else {
+                        renderDropdown(allUsers);
+                    }
+                });
+                
+                // Click outside to close dropdown
+                document.addEventListener('click', function(e) {
+                    if (!e.target.closest('.user-search-container')) {
+                        dropdown.classList.remove('show');
+                    }
+                });
+                
+                // Render dropdown function
+                function renderDropdown(users) {
+                    if (users.length === 0) {
+                        dropdown.innerHTML = '<div class="no-results">No users found</div>';
+                        dropdown.classList.add('show');
+                        return;
+                    }
+                    
+                    dropdown.innerHTML = users.map(user => `
+                        <div class="user-option" data-user-id="${user.ID}" data-user-name="${escapeHtml(user.Name)}" data-user-repid="${escapeHtml(user.RepID)}">
+                            <span class="user-name">${escapeHtml(user.Name)}</span>
+                            <span class="user-repid">Rep ID: ${escapeHtml(user.RepID)}</span>
+                        </div>
+                    `).join('');
+                    
+                    dropdown.classList.add('show');
+                    
+                    // Add click event to options
+                    dropdown.querySelectorAll('.user-option').forEach(option => {
+                        option.addEventListener('click', function() {
+                            const userId = this.dataset.userId;
+                            const userName = this.dataset.userName;
+                            const userRepId = this.dataset.userRepId;
+                            
+                            // Update hidden input and search display
+                            hiddenInput.value = userId;
+                            searchInput.value = `${userName} (${userRepId})`;
+                            
+                            // Close dropdown
+                            dropdown.classList.remove('show');
+                        });
+                    });
+                }
+                
+                // Escape HTML to prevent XSS
+                function escapeHtml(text) {
+                    const map = {
+                        '&': '&amp;',
+                        '<': '&lt;',
+                        '>': '&gt;',
+                        '"': '&quot;',
+                        "'": '&#039;'
+                    };
+                    return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+                }
+            });
+
             function applyReportFilters() {
                 const startDate = document.getElementById('report_start_date').value;
                 const endDate = document.getElementById('report_end_date').value;
-                const selectedUser = document.getElementById('selected_user').value;
+                const selectedUser = document.getElementById('selected_user_id').value;
 
                 let url = '?action=reports&';
                 if (startDate) {
