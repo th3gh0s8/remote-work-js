@@ -3669,6 +3669,46 @@ function showReports() {
                 background-color: #f5c6cb;
                 color: #721c24;
             }
+
+            /* Dropdown styles for user search */
+            .dropdown-content {
+                display: none;
+                position: absolute;
+                background-color: white;
+                min-width: 250px;
+                box-shadow: 0px 8px 16px rgba(0,0,0,0.2);
+                z-index: 1000;
+                max-height: 250px;
+                overflow-y: auto;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                top: 100%;
+                left: 0;
+                margin-top: 2px;
+            }
+
+            .dropdown-content .user-option {
+                color: black;
+                padding: 10px;
+                text-decoration: none;
+                display: block;
+                cursor: pointer;
+                transition: background-color 0.2s;
+                border-bottom: 1px solid #f0f0f0;
+            }
+
+            .dropdown-content .user-option:last-child {
+                border-bottom: none;
+            }
+
+            .dropdown-content .user-option:hover {
+                background-color: #f1f1f1;
+            }
+
+            .dropdown-content .user-option.selected {
+                background-color: #4361ee;
+                color: white;
+            }
         </style>
     </head>
     <body>
