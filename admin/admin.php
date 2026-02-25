@@ -3787,6 +3787,43 @@ function showReports() {
             #selected_user_id {
                 display: none;
             }
+
+            .user-search-actions {
+                display: flex;
+                gap: 5px;
+                margin-top: 5px;
+            }
+
+            .user-search-actions button {
+                flex: 1;
+                padding: 6px 10px;
+                font-size: 0.85em;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: 500;
+                transition: var(--transition);
+            }
+
+            .btn-select-all {
+                background: linear-gradient(to right, var(--success-color), #4895ef);
+                color: white;
+            }
+
+            .btn-select-all:hover {
+                opacity: 0.9;
+                transform: translateY(-1px);
+            }
+
+            .btn-clear {
+                background: linear-gradient(to right, #6c757d, #495057);
+                color: white;
+            }
+
+            .btn-clear:hover {
+                opacity: 0.9;
+                transform: translateY(-1px);
+            }
         </style>
     </head>
     <body>
@@ -3814,6 +3851,10 @@ function showReports() {
                                placeholder="Search by Rep ID or Name..."
                                autocomplete="off">
                         <input type="hidden" id="selected_user_id" name="selected_user" value="<?= htmlspecialchars($selected_user_id) ?>">
+                        <div class="user-search-actions">
+                            <button type="button" class="btn-select-all" onclick="selectAllReportUsers()">Select All Users</button>
+                            <button type="button" class="btn-clear" onclick="clearReportUserSelection()">Clear Selection</button>
+                        </div>
                         <div id="user_dropdown" class="user-dropdown"></div>
                     </div>
                 </div>
@@ -4209,6 +4250,42 @@ function showReports() {
                     return text.replace(/[&<>"']/g, function(m) { return map[m]; });
                 }
             });
+
+            // Select all users function
+            function selectAllReportUsers() {
+                const searchInput = document.getElementById('user_search');
+                const hiddenInput = document.getElementById('selected_user_id');
+                const dropdown = document.getElementById('user_dropdown');
+
+                searchInput.value = 'All Users Selected';
+                hiddenInput.value = ''; // Empty value means all users
+
+                // Close dropdown
+                if (dropdown) {
+                    dropdown.classList.remove('show');
+                }
+
+                // Apply filters
+                applyReportFilters();
+            }
+
+            // Clear user selection function
+            function clearReportUserSelection() {
+                const searchInput = document.getElementById('user_search');
+                const hiddenInput = document.getElementById('selected_user_id');
+                const dropdown = document.getElementById('user_dropdown');
+
+                searchInput.value = '';
+                hiddenInput.value = '';
+
+                // Close dropdown
+                if (dropdown) {
+                    dropdown.classList.remove('show');
+                }
+
+                // Apply filters
+                applyReportFilters();
+            }
 
             function applyReportFilters() {
                 const startDate = document.getElementById('report_start_date').value;
