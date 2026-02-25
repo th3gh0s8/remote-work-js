@@ -272,7 +272,7 @@ function showDashboard() {
     $sort_column = $_GET['sort_col'] ?? 'last_activity';
     $sort_direction = $_GET['sort_dir'] ?? 'DESC';
     $user_status_filter = $_GET['user_status'] ?? '';
-    $branch_filter = $_GET['branch_id'] ?? '';
+    $active_user_filter = $_GET['active_user_filter'] ?? '';
     $page = (isset($_GET['page']) && $_GET['page'] == 'active_users' && isset($_GET['active_users_page'])) ? max(1, (int)$_GET['active_users_page']) : 1;
     $limit = 10; // Number of records per page
     $offset = ($page - 1) * $limit;
@@ -307,9 +307,9 @@ function showDashboard() {
         $params[] = $user_status_filter;
     }
 
-    if (!empty($branch_filter)) {
-        $where_conditions[] = "s.br_id LIKE ?";
-        $params[] = "%{$branch_filter}%";
+    if (!empty($active_user_filter)) {
+        $where_conditions[] = "s.ID = ?";
+        $params[] = $active_user_filter;
     }
 
     $where_clause = implode(" AND ", $where_conditions);
@@ -1201,9 +1201,44 @@ function showDashboard() {
                                 <option value="offline" <?= (isset($_GET['user_status']) && $_GET['user_status'] == 'offline') ? 'selected' : '' ?>>Offline</option>
                             </select>
                         </div>
-                        <div class="filter-item">
-                            <label for="branch_filter">Branch ID:</label>
-                            <input type="text" id="branch_filter" name="branch_filter" value="<?= $_GET['branch_id'] ?? '' ?>" placeholder="Filter by branch">
+                        <div class="filter-item" style="position: relative; display: inline-block;">
+                            <label for="active_user_filter">Search User:</label>
+                            <input type="text" 
+                                   id="active_user_filter_input" 
+                                   placeholder="Search by Rep ID or Name"
+                                   value="<?php
+                                       $selected_user = '';
+                                       if (!empty($_GET['active_user_filter'])) {
+                                           $user_stmt = $pdo->prepare("SELECT Name, RepID FROM salesrep WHERE ID = ?");
+                                           $user_stmt->execute([$_GET['active_user_filter']]);
+                                           $user_row = $user_stmt->fetch(PDO::FETCH_ASSOC);
+                                           if ($user_row) {
+                                               $selected_user = $user_row['RepID'] . ' - ' . $user_row['Name'];
+                                           }
+                                       }
+                                       echo htmlspecialchars($selected_user);
+                                   ?>"
+                                   onclick="toggleActiveUserDropdown()"
+                                   onkeyup="filterActiveUserOptions()" />
+                            <div id="active-user-dropdown" class="dropdown-content">
+                                <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold; border-bottom: 1px solid #ddd;" onclick="selectAllActiveUsers()">Select All Users</div>
+                                <div style="padding: 10px; background-color: #f1f1f1; font-weight: bold;" onclick="clearActiveUserSelection()">Clear Selection</div>
+                                <?php
+                                // Fetch all users for the filter dropdown
+                                $user_filter_stmt = $pdo->query("SELECT ID, Name, RepID FROM salesrep WHERE Actives = 'YES' ORDER BY RepID");
+                                $filter_users = $user_filter_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                                foreach ($filter_users as $filter_user): ?>
+                                    <div class="user-option"
+                                         data-id="<?php echo $filter_user['ID']; ?>"
+                                         data-repid="<?php echo htmlspecialchars($filter_user['RepID']); ?>"
+                                         data-name="<?php echo htmlspecialchars($filter_user['Name']); ?>"
+                                         onclick="selectActiveUser(<?php echo $filter_user['ID']; ?>, '<?php echo addslashes($filter_user['RepID']); ?>', '<?php echo addslashes($filter_user['Name']); ?>')">
+                                        <?php echo htmlspecialchars($filter_user['RepID']); ?> - <?php echo htmlspecialchars($filter_user['Name']); ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <input type="hidden" id="active_user_filter" name="active_user_filter" value="<?php echo $_GET['active_user_filter'] ?? ''; ?>" />
                         </div>
                         <button class="apply-filters" onclick="filterActiveUsers()">Apply Filters</button>
                     </div>
@@ -1212,11 +1247,11 @@ function showDashboard() {
                             <table>
                                 <thead>
                                     <tr>
-                                        <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">ID <?= $sort_column === 'ID' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Rep ID <?= $sort_column === 'RepID' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Name <?= $sort_column === 'Name' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Branch ID <?= $sort_column === 'br_id' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
-                                        <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Last Activity <?= $sort_column === 'last_activity' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">ID <?= $sort_column === 'ID' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">Rep ID <?= $sort_column === 'RepID' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">Name <?= $sort_column === 'Name' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">Branch ID <?= $sort_column === 'br_id' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">Last Activity <?= $sort_column === 'last_activity' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                         <th>Status</th>
                                         <th>Actions</th>
                                     </tr>
@@ -1248,18 +1283,18 @@ function showDashboard() {
                             <!-- Pagination -->
                             <div class="pagination">
                                 <?php if ($page > 1): ?>
-                                    <a href="?action=dashboard&page=active_users&active_users_page=<?= $page - 1 ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">&laquo; Previous</a>
+                                    <a href="?action=dashboard&page=active_users&active_users_page=<?= $page - 1 ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">&laquo; Previous</a>
                                 <?php endif; ?>
 
                                 <?php for ($i = max(1, $page - 2); $i <= min($total_pages, $page + 2); $i++): ?>
-                                    <a href="?action=dashboard&page=active_users&active_users_page=<?= $i ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>"
+                                    <a href="?action=dashboard&page=active_users&active_users_page=<?= $i ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>"
                                        class="<?= $i == $page ? 'active' : '' ?>">
                                         <?= $i ?>
                                     </a>
                                 <?php endfor; ?>
 
                                 <?php if ($page < $total_pages): ?>
-                                    <a href="?action=dashboard&page=active_users&active_users_page=<?= $page + 1 ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($branch_filter)): ?>&branch_id=<?= $branch_filter ?><?php endif; ?>">Next &raquo;</a>
+                                    <a href="?action=dashboard&page=active_users&active_users_page=<?= $page + 1 ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">Next &raquo;</a>
                                 <?php endif; ?>
                             </div>
                         <?php else: ?>
@@ -1796,7 +1831,7 @@ function showDashboard() {
 
             function filterActiveUsers() {
                 const statusFilter = document.getElementById('user_status_filter').value;
-                const branchFilter = document.getElementById('branch_filter').value;
+                const userFilter = document.getElementById('active_user_filter').value;
                 const sortCol = '<?= $sort_column ?>';
                 const sortDir = '<?= $sort_direction ?>';
 
@@ -1804,8 +1839,8 @@ function showDashboard() {
                 if (statusFilter) {
                     url += `user_status=${statusFilter}&`;
                 }
-                if (branchFilter) {
-                    url += `branch_id=${branchFilter}&`;
+                if (userFilter) {
+                    url += `active_user_filter=${userFilter}&`;
                 }
                 if (sortCol) {
                     url += `sort_col=${sortCol}&`;
@@ -1820,6 +1855,71 @@ function showDashboard() {
                 }
 
                 window.location.href = url;
+            }
+
+            function toggleActiveUserDropdown() {
+                const dropdown = document.getElementById('active-user-dropdown');
+                dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+            }
+
+            function filterActiveUserOptions() {
+                const input = document.getElementById('active_user_filter_input');
+                const filter = input.value.toLowerCase();
+                const dropdown = document.getElementById('active-user-dropdown');
+                const options = dropdown.getElementsByClassName('user-option');
+
+                for (let i = 0; i < options.length; i++) {
+                    const repId = options[i].getAttribute('data-repid').toLowerCase();
+                    const name = options[i].getAttribute('data-name').toLowerCase();
+
+                    if (repId.indexOf(filter) > -1 || name.indexOf(filter) > -1) {
+                        options[i].style.display = '';
+                    } else {
+                        options[i].style.display = 'none';
+                    }
+                }
+            }
+
+            function selectAllActiveUsers() {
+                const input = document.getElementById('active_user_filter_input');
+                const hiddenInput = document.getElementById('active_user_filter');
+
+                input.value = 'All Users Selected';
+                hiddenInput.value = ''; // Empty value means all users
+
+                // Close dropdown
+                document.getElementById('active-user-dropdown').style.display = 'none';
+
+                // Apply filters
+                filterActiveUsers();
+            }
+
+            function clearActiveUserSelection() {
+                const input = document.getElementById('active_user_filter_input');
+                const hiddenInput = document.getElementById('active_user_filter');
+
+                input.value = '';
+                hiddenInput.value = '';
+
+                // Close dropdown
+                document.getElementById('active-user-dropdown').style.display = 'none';
+
+                // Apply filters
+                filterActiveUsers();
+            }
+
+            function selectActiveUser(userId, repId, name) {
+                const input = document.getElementById('active_user_filter_input');
+                const hiddenInput = document.getElementById('active_user_filter');
+
+                input.value = repId + ' - ' + name;
+                hiddenInput.value = userId;
+
+                // Close dropdown
+                document.getElementById('active-user-dropdown').style.display = 'none';
+
+                // Apply filters
+                filterActiveUsers();
             }
 
             function filterAllUsers() {
@@ -1959,6 +2059,19 @@ function showDashboard() {
                 if (event.target !== input && !input.contains(event.target) &&
                     event.target !== dropdown && !dropdown.contains(event.target)) {
                     if (dropdown.style.display === 'block') {
+                        dropdown.style.display = 'none';
+                    }
+                }
+            });
+
+            // Close active user dropdown if clicked outside
+            document.addEventListener('click', function(event) {
+                const input = document.getElementById('active_user_filter_input');
+                const dropdown = document.getElementById('active-user-dropdown');
+
+                if (event.target !== input && !input.contains(event.target) &&
+                    event.target !== dropdown && !dropdown.contains(event.target)) {
+                    if (dropdown && dropdown.style.display === 'block') {
                         dropdown.style.display = 'none';
                     }
                 }
