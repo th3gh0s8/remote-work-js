@@ -610,6 +610,20 @@ function showDashboard() {
                    ) THEN 'online'
                    ELSE 'offline'
                END as current_status,
+               CASE
+                   WHEN EXISTS (
+                       SELECT 1 FROM user_activity ua
+                       WHERE ua.salesrepTb = s.ID
+                       AND ua.activity_type = 'check-in'
+                       AND ua.rDateTime > COALESCE((
+                           SELECT MAX(ua2.rDateTime)
+                           FROM user_activity ua2
+                           WHERE ua2.salesrepTb = s.ID
+                           AND ua2.activity_type = 'check-out'
+                       ), '1900-01-01')
+                   ) THEN 'checked-in'
+                   ELSE 'checked-out'
+               END as checkin_status,
                (SELECT MAX(rDateTime) FROM user_activity WHERE salesrepTb = s.ID) as last_activity
         FROM salesrep s
         {$all_users_where_clause}
@@ -1642,11 +1656,22 @@ function showDashboard() {
                                             <td><?php echo htmlspecialchars($user['join_date']); ?></td>
                                             <td>
                                                 <?php if ($user['Actives'] === 'YES'): ?>
-                                                    <?php if ($user['current_status'] === 'online'): ?>
-                                                        <span class="user-status-active">Online</span>
-                                                    <?php else: ?>
-                                                        <span class="user-status-inactive">Offline</span>
-                                                    <?php endif; ?>
+                                                    <div class="status-container">
+                                                        <div class="status-row">
+                                                            <?php if ($user['current_status'] === 'online'): ?>
+                                                                <span class="user-status-active">Online</span>
+                                                            <?php else: ?>
+                                                                <span class="user-status-inactive">Offline</span>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                        <div class="status-row">
+                                                            <?php if ($user['checkin_status'] === 'checked-in'): ?>
+                                                                <span class="user-checkin-status">Checked In</span>
+                                                            <?php else: ?>
+                                                                <span class="user-checkout-status">Checked Out</span>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                    </div>
                                                 <?php else: ?>
                                                     <span class="user-status-inactive">Inactive</span>
                                                 <?php endif; ?>
