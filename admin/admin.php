@@ -341,7 +341,21 @@ function showDashboard() {
                        AND ua2.rDateTime >= DATE_SUB(NOW(), INTERVAL 45 SECOND)
                    ) THEN 'online'
                    ELSE 'offline'
-               END as current_status
+               END as current_status,
+               CASE
+                   WHEN EXISTS (
+                       SELECT 1 FROM user_activity ua2
+                       WHERE ua2.salesrepTb = s.ID
+                       AND ua2.activity_type = 'check-in'
+                       AND ua2.rDateTime > COALESCE((
+                           SELECT MAX(ua3.rDateTime)
+                           FROM user_activity ua3
+                           WHERE ua3.salesrepTb = s.ID
+                           AND ua3.activity_type = 'check-out'
+                       ), '1900-01-01')
+                   ) THEN 'checked-in'
+                   ELSE 'checked-out'
+               END as checkin_status
         FROM salesrep s
         INNER JOIN user_activity ua ON s.ID = ua.salesrepTb
         WHERE {$where_clause}
@@ -1007,6 +1021,35 @@ function showDashboard() {
                 border-radius: 20px;
             }
 
+            .status-container {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .status-row {
+                display: flex;
+                align-items: center;
+            }
+
+            .user-checkin-status {
+                color: #0d6efd;
+                font-weight: 600;
+                background-color: rgba(13, 110, 253, 0.1);
+                padding: 4px 10px;
+                border-radius: 20px;
+                font-size: 0.85em;
+            }
+
+            .user-checkout-status {
+                color: #6c757d;
+                font-weight: 600;
+                background-color: rgba(108, 117, 125, 0.1);
+                padding: 4px 10px;
+                border-radius: 20px;
+                font-size: 0.85em;
+            }
+
             .pagination {
                 display: flex;
                 justify-content: center;
@@ -1267,11 +1310,22 @@ function showDashboard() {
                                             <td><?php echo htmlspecialchars($user['first_activity']); ?></td>
                                             <td><?php echo htmlspecialchars($user['last_activity']); ?></td>
                                             <td>
-                                                <?php if ($user['current_status'] === 'online'): ?>
-                                                    <span class="user-status-active">Online</span>
-                                                <?php else: ?>
-                                                    <span class="user-status-inactive">Offline</span>
-                                                <?php endif; ?>
+                                                <div class="status-container">
+                                                    <div class="status-row">
+                                                        <?php if ($user['current_status'] === 'online'): ?>
+                                                            <span class="user-status-active">Online</span>
+                                                        <?php else: ?>
+                                                            <span class="user-status-inactive">Offline</span>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                    <div class="status-row">
+                                                        <?php if ($user['checkin_status'] === 'checked-in'): ?>
+                                                            <span class="user-checkin-status">Checked In</span>
+                                                        <?php else: ?>
+                                                            <span class="user-checkout-status">Checked Out</span>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                </div>
                                             </td>
                                             <td class="recording-actions">
                                                 <a href="?action=watch_live&user_id=<?php echo $user['ID']; ?>" class="view-btn">Watch Live</a>
@@ -1660,11 +1714,19 @@ function showDashboard() {
                                 if (row) {
                                     const statusCell = row.cells[5]; // 6th column (0-indexed)
                                     if (statusCell) {
-                                        if (user.current_status === 'online') {
-                                            statusCell.innerHTML = '<span class="user-status-active">Online</span>';
-                                        } else {
-                                            statusCell.innerHTML = '<span class="user-status-inactive">Offline</span>';
-                                        }
+                                        const onlineStatus = user.current_status === 'online' 
+                                            ? '<span class="user-status-active">Online</span>'
+                                            : '<span class="user-status-inactive">Offline</span>';
+                                        const checkinStatus = user.checkin_status === 'checked-in'
+                                            ? '<span class="user-checkin-status">Checked In</span>'
+                                            : '<span class="user-checkout-status">Checked Out</span>';
+                                        
+                                        statusCell.innerHTML = `
+                                            <div class="status-container">
+                                                <div class="status-row">${onlineStatus}</div>
+                                                <div class="status-row">${checkinStatus}</div>
+                                            </div>
+                                        `;
                                     }
                                 }
                             });
@@ -6918,13 +6980,13 @@ function showLiveWatching() {
 // API endpoint to get user statuses for AJAX updates
 function getUserStatuses() {
     header('Content-Type: application/json');
-    
+
     $pdo = getDatabaseConnection();
     if (!$pdo) {
         echo json_encode(['success' => false, 'error' => 'Database connection failed']);
         return;
     }
-    
+
     try {
         $stmt = $pdo->prepare("
             SELECT s.ID, s.RepID, s.Name,
@@ -6942,13 +7004,27 @@ function getUserStatuses() {
                            AND ua.rDateTime >= DATE_SUB(NOW(), INTERVAL 45 SECOND)
                        ) THEN 'online'
                        ELSE 'offline'
-                   END as current_status
+                   END as current_status,
+                   CASE
+                       WHEN EXISTS (
+                           SELECT 1 FROM user_activity ua
+                           WHERE ua.salesrepTb = s.ID
+                           AND ua.activity_type = 'check-in'
+                           AND ua.rDateTime > COALESCE((
+                               SELECT MAX(ua2.rDateTime)
+                               FROM user_activity ua2
+                               WHERE ua2.salesrepTb = s.ID
+                               AND ua2.activity_type = 'check-out'
+                           ), '1900-01-01')
+                       ) THEN 'checked-in'
+                       ELSE 'checked-out'
+                   END as checkin_status
             FROM salesrep s
             WHERE s.Actives = 'YES'
         ");
         $stmt->execute();
         $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
+
         echo json_encode(['success' => true, 'users' => $users]);
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
