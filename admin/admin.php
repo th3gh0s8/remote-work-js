@@ -3894,6 +3894,37 @@ function showReports() {
                 font-size: 1.05em;
             }
 
+            /* All Users Summary Section - Full Width */
+            .all-users-summary-section {
+                background: white;
+                padding: 25px 30px;
+                border-radius: var(--border-radius);
+                box-shadow: var(--card-shadow);
+                margin-bottom: 30px;
+                overflow-x: auto;
+            }
+
+            .all-users-summary-section .section-header {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 20px 25px;
+                margin: -25px -30px 25px -30px;
+                border-radius: var(--border-radius) var(--border-radius) 0 0;
+            }
+
+            .all-users-summary-section .section-header h2 {
+                margin: 0;
+                font-size: 1.4em;
+                font-weight: 600;
+            }
+
+            .no-data-message {
+                text-align: center;
+                padding: 40px;
+                color: #6c757d;
+                font-size: 1.1em;
+            }
+
             .stat-card.break-time {
                 border-left-color: #ffc107;
             }
@@ -4343,75 +4374,77 @@ function showReports() {
             </div>
         <?php endif; ?>
 
-        <div class="reports-container">
-            <!-- All Users Daily Time Summary -->
-            <div class="report-card" style="overflow-x: auto;">
-                <h3>📊 All Users Daily Summary - <?= date('F d, Y', strtotime($report_date)) ?></h3>
-                <?php if (count($all_users_daily_summary) > 0): ?>
-                    <?php
-                    // Find maximum break count across all users
-                    $max_breaks = 0;
-                    foreach ($all_users_daily_summary as $user) {
-                        if ($user['break_count'] > $max_breaks) {
-                            $max_breaks = $user['break_count'];
-                        }
+        <!-- All Users Daily Time Summary - Full Width Section -->
+        <div class="all-users-summary-section">
+            <div class="section-header">
+                <h2>📊 All Users Daily Summary - <?= date('F d, Y', strtotime($report_date)) ?></h2>
+            </div>
+            <?php if (count($all_users_daily_summary) > 0): ?>
+                <?php
+                // Find maximum break count across all users
+                $max_breaks = 0;
+                foreach ($all_users_daily_summary as $user) {
+                    if ($user['break_count'] > $max_breaks) {
+                        $max_breaks = $user['break_count'];
                     }
-                    ?>
-                    <table class="daily-time-summary">
-                        <thead>
+                }
+                ?>
+                <table class="daily-time-summary">
+                    <thead>
+                        <tr>
+                            <th>Rep ID</th>
+                            <th>Name</th>
+                            <th>Check In</th>
+                            <?php
+                            // Dynamic break columns based on max breaks
+                            if ($max_breaks > 0) {
+                                for ($i = 1; $i <= $max_breaks; $i++) {
+                                    echo "<th>Break {$i} Start</th>";
+                                }
+                                for ($i = 1; $i <= $max_breaks; $i++) {
+                                    echo "<th>Break {$i} End</th>";
+                                }
+                            } else {
+                                echo "<th colspan=\"2\">No Breaks</th>";
+                            }
+                            ?>
+                            <th>Check Out</th>
+                            <th>Check-ins</th>
+                            <th>Total Work Hours</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($all_users_daily_summary as $user): ?>
                             <tr>
-                                <th>Rep ID</th>
-                                <th>Name</th>
-                                <th>Check In</th>
+                                <td><strong><?= htmlspecialchars($user['RepID'] ?? 'N/A') ?></strong></td>
+                                <td><?= htmlspecialchars($user['Name'] ?? 'N/A') ?></td>
+                                <td><?= $user['first_checkin'] ?? 'N/A' ?></td>
                                 <?php
-                                // Dynamic break columns based on max breaks
+                                // Display break columns for this user
                                 if ($max_breaks > 0) {
-                                    for ($i = 1; $i <= $max_breaks; $i++) {
-                                        echo "<th>Break {$i} Start</th>";
+                                    for ($i = 0; $i < $max_breaks; $i++) {
+                                        echo '<td>' . (isset($user['break_starts'][$i]) ? $user['break_starts'][$i] : '<span style="color:#ccc;">-</span>') . '</td>';
                                     }
-                                    for ($i = 1; $i <= $max_breaks; $i++) {
-                                        echo "<th>Break {$i} End</th>";
+                                    for ($i = 0; $i < $max_breaks; $i++) {
+                                        echo '<td>' . (isset($user['break_ends'][$i]) ? $user['break_ends'][$i] : '<span style="color:#ccc;">-</span>') . '</td>';
                                     }
                                 } else {
-                                    echo "<th colspan=\"2\">No Breaks</th>";
+                                    echo '<td colspan="2" style="text-align:center;color:#999;">-</td>';
                                 }
                                 ?>
-                                <th>Check Out</th>
-                                <th>Check-ins</th>
-                                <th>Total Work Hours</th>
+                                <td><?= $user['last_checkout'] ?? 'N/A' ?></td>
+                                <td><?= $user['checkin_count'] ?></td>
+                                <td><strong><?= formatDuration($user['total_work_seconds']) ?></strong></td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($all_users_daily_summary as $user): ?>
-                                <tr>
-                                    <td><strong><?= htmlspecialchars($user['RepID'] ?? 'N/A') ?></strong></td>
-                                    <td><?= htmlspecialchars($user['Name'] ?? 'N/A') ?></td>
-                                    <td><?= $user['first_checkin'] ?? 'N/A' ?></td>
-                                    <?php
-                                    // Display break columns for this user
-                                    if ($max_breaks > 0) {
-                                        for ($i = 0; $i < $max_breaks; $i++) {
-                                            echo '<td>' . (isset($user['break_starts'][$i]) ? $user['break_starts'][$i] : '<span style="color:#ccc;">-</span>') . '</td>';
-                                        }
-                                        for ($i = 0; $i < $max_breaks; $i++) {
-                                            echo '<td>' . (isset($user['break_ends'][$i]) ? $user['break_ends'][$i] : '<span style="color:#ccc;">-</span>') . '</td>';
-                                        }
-                                    } else {
-                                        echo '<td colspan="2" style="text-align:center;color:#999;">-</td>';
-                                    }
-                                    ?>
-                                    <td><?= $user['last_checkout'] ?? 'N/A' ?></td>
-                                    <td><?= $user['checkin_count'] ?></td>
-                                    <td><strong><?= formatDuration($user['total_work_seconds']) ?></strong></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php else: ?>
-                    <p>No user activity found for the selected date.</p>
-                <?php endif; ?>
-            </div>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php else: ?>
+                <p class="no-data-message">No user activity found for the selected date.</p>
+            <?php endif; ?>
+        </div>
 
+        <div class="reports-container">
             <div class="report-card">
                 <h3>Recordings by User</h3>
                 <?php if (count($recordings_by_user) > 0): ?>
