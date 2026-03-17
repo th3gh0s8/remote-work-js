@@ -4167,7 +4167,7 @@ function showReports() {
                         </tbody>
                     </table>
                 <?php else: ?>
-                    <p>No recordings found in the selected period.</p>
+                    <p>No recordings found on the selected date.</p>
                 <?php endif; ?>
             </div>
 
@@ -4191,7 +4191,7 @@ function showReports() {
                         </tbody>
                     </table>
                 <?php else: ?>
-                    <p>No activities found in the selected period.</p>
+                    <p>No activities found on the selected date.</p>
                 <?php endif; ?>
             </div>
         </div>
