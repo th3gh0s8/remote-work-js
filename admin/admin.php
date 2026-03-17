@@ -1737,15 +1737,15 @@ function showDashboard() {
                             data.users.forEach(user => {
                                 const row = document.querySelector(`tr[data-user-id="${user.ID}"]`);
                                 if (row) {
-                                    const statusCell = row.cells[5]; // 6th column (0-indexed)
+                                    const statusCell = row.cells[6]; // 7th column (0-indexed) - Status column
                                     if (statusCell) {
-                                        const onlineStatus = user.current_status === 'online' 
+                                        const onlineStatus = user.current_status === 'online'
                                             ? '<span class="user-status-active">Online</span>'
                                             : '<span class="user-status-inactive">Offline</span>';
                                         const checkinStatus = user.checkin_status === 'checked-in'
                                             ? '<span class="user-checkin-status">Checked In</span>'
                                             : '<span class="user-checkout-status">Checked Out</span>';
-                                        
+
                                         statusCell.innerHTML = `
                                             <div class="status-container">
                                                 <div class="status-row">${onlineStatus}</div>
