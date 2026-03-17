@@ -3293,77 +3293,76 @@ function showReports() {
         die("Connection failed: Could not establish database connection.");
     }
 
-    // Get date range for reports
-    $start_date = $_GET['report_start_date'] ?? date('Y-m-01'); // First day of current month
-    $end_date = $_GET['report_end_date'] ?? date('Y-m-d');     // Current date
+    // Get selected date for reports (single date selector)
+    $report_date = $_GET['report_date'] ?? date('Y-m-d'); // Default to current date
 
     // Total users count
     $stmt = $pdo->query("SELECT COUNT(*) as total FROM salesrep WHERE Actives = 'YES'");
     $total_users = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
-    // Active users in date range
+    // Active users on selected date
     $stmt = $pdo->prepare("
         SELECT COUNT(DISTINCT salesrepTb) as active_count
         FROM user_activity
-        WHERE rDateTime BETWEEN ? AND ?
+        WHERE DATE(rDateTime) = ?
     ");
-    $stmt->execute([$start_date . ' 00:00:00', $end_date . ' 23:59:59']);
+    $stmt->execute([$report_date]);
     $active_users = $stmt->fetch(PDO::FETCH_ASSOC)['active_count'];
 
-    // Total recordings in date range
+    // Total recordings on selected date
     $stmt = $pdo->prepare("
         SELECT COUNT(*) as total_recordings
         FROM web_images
-        WHERE type = 'recording' AND date BETWEEN ? AND ?
+        WHERE type = 'recording' AND date = ?
     ");
-    $stmt->execute([$start_date, $end_date]);
+    $stmt->execute([$report_date]);
     $total_recordings = $stmt->fetch(PDO::FETCH_ASSOC)['total_recordings'];
 
-    // Recordings by user in date range
+    // Recordings by user on selected date
     $stmt = $pdo->prepare("
         SELECT s.Name, s.RepID, COUNT(w.ID) as recording_count
         FROM web_images w
         LEFT JOIN salesrep s ON w.user_id = s.ID
-        WHERE w.type = 'recording' AND w.date BETWEEN ? AND ?
+        WHERE w.type = 'recording' AND w.date = ?
         GROUP BY w.user_id
         ORDER BY recording_count DESC
     ");
-    $stmt->execute([$start_date, $end_date]);
+    $stmt->execute([$report_date]);
     $recordings_by_user = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Activity types distribution
+    // Activity types distribution on selected date
     $stmt = $pdo->prepare("
         SELECT activity_type, COUNT(*) as count
         FROM user_activity
-        WHERE rDateTime BETWEEN ? AND ?
+        WHERE DATE(rDateTime) = ?
         GROUP BY activity_type
         ORDER BY count DESC
     ");
-    $stmt->execute([$start_date . ' 00:00:00', $end_date . ' 23:59:59']);
+    $stmt->execute([$report_date]);
     $activity_types = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Daily activity trend
+    // Hourly activity trend for selected date
     $stmt = $pdo->prepare("
-        SELECT DATE(rDateTime) as activity_date, COUNT(*) as daily_count
+        SELECT HOUR(rDateTime) as activity_hour, COUNT(*) as hourly_count
         FROM user_activity
-        WHERE rDateTime BETWEEN ? AND ?
-        GROUP BY DATE(rDateTime)
-        ORDER BY activity_date ASC
+        WHERE DATE(rDateTime) = ?
+        GROUP BY HOUR(rDateTime)
+        ORDER BY activity_hour ASC
     ");
-    $stmt->execute([$start_date . ' 00:00:00', $end_date . ' 23:59:59']);
-    $daily_activity = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt->execute([$report_date]);
+    $hourly_activity = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // User activity duration (if duration is tracked)
+    // User activity duration on selected date
     $stmt = $pdo->prepare("
         SELECT s.Name, s.RepID, SUM(ua.duration) as total_duration
         FROM user_activity ua
         LEFT JOIN salesrep s ON ua.salesrepTb = s.ID
-        WHERE ua.rDateTime BETWEEN ? AND ? AND ua.duration IS NOT NULL
+        WHERE DATE(ua.rDateTime) = ? AND ua.duration IS NOT NULL
         GROUP BY ua.salesrepTb
         ORDER BY total_duration DESC
         LIMIT 10
     ");
-    $stmt->execute([$start_date . ' 00:00:00', $end_date . ' 23:59:59']);
+    $stmt->execute([$report_date]);
     $user_durations = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     // Helper function to format seconds to hours:minutes:seconds
@@ -3382,11 +3381,11 @@ function showReports() {
     $selected_user_id = $_GET['selected_user'] ?? '';
     $user_work_stats = null;
     $user_activity_log = [];
-    
+
     if (!empty($selected_user_id)) {
         // Calculate work hours, break time, and other stats for selected user
         $stmt = $pdo->prepare("
-            SELECT 
+            SELECT
                 ua.activity_type,
                 ua.rDateTime,
                 ua.duration,
@@ -3394,10 +3393,10 @@ function showReports() {
                 s.RepID
             FROM user_activity ua
             LEFT JOIN salesrep s ON ua.salesrepTb = s.ID
-            WHERE ua.salesrepTb = ? AND ua.rDateTime BETWEEN ? AND ?
+            WHERE ua.salesrepTb = ? AND DATE(ua.rDateTime) = ?
             ORDER BY ua.rDateTime ASC
         ");
-        $stmt->execute([$selected_user_id, $start_date . ' 00:00:00', $end_date . ' 23:59:59']);
+        $stmt->execute([$selected_user_id, $report_date]);
         $user_activity_log = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // Calculate statistics from activity log
@@ -3922,17 +3921,13 @@ function showReports() {
         <div class="filters">
             <div class="filter-row">
                 <div class="filter-item">
-                    <label for="report_start_date">Start Date:</label>
-                    <input type="date" id="report_start_date" name="report_start_date" value="<?= $start_date ?>">
-                </div>
-                <div class="filter-item">
-                    <label for="report_end_date">End Date:</label>
-                    <input type="date" id="report_end_date" name="report_end_date" value="<?= $end_date ?>">
+                    <label for="report_date">Report Date:</label>
+                    <input type="date" id="report_date" name="report_date" value="<?= $report_date ?>">
                 </div>
                 <div class="filter-item" style="position: relative; display: inline-block;">
                     <label for="report_user_filter">Select User:</label>
-                    <input type="text" 
-                           id="report_user_filter_input" 
+                    <input type="text"
+                           id="report_user_filter_input"
                            placeholder="Search by Rep ID or Name"
                            value="<?php
                                $selected_user = '';
@@ -3979,11 +3974,11 @@ function showReports() {
             </div>
             <div class="stat-box">
                 <span class="number"><?= $active_users ?></span>
-                <span class="label">Active in Period</span>
+                <span class="label">Active on Date</span>
             </div>
             <div class="stat-box">
                 <span class="number"><?= $total_recordings ?></span>
-                <span class="label">Recordings in Period</span>
+                <span class="label">Recordings on Date</span>
             </div>
         </div>
 
@@ -4007,7 +4002,7 @@ function showReports() {
                         <span class="user-repid">(<?= htmlspecialchars($user_info['RepID'] ?? 'N/A') ?>)</span>
                     </h2>
                     <span class="report-period">
-                        <?= $start_date ?> to <?= $end_date ?>
+                        <?= $report_date ?>
                     </span>
                 </div>
 
@@ -4203,26 +4198,26 @@ function showReports() {
 
         <div class="reports-container">
             <div class="report-card">
-                <h3>Daily Activity Trend</h3>
-                <?php if (count($daily_activity) > 0): ?>
+                <h3>Hourly Activity Trend</h3>
+                <?php if (count($hourly_activity) > 0): ?>
                     <table>
                         <thead>
                             <tr>
-                                <th>Date</th>
+                                <th>Hour</th>
                                 <th>Activities</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($daily_activity as $row): ?>
+                            <?php foreach ($hourly_activity as $row): ?>
                                 <tr>
-                                    <td><?= $row['activity_date'] ?></td>
-                                    <td><?= $row['daily_count'] ?></td>
+                                    <td><?= sprintf('%02d:00', $row['activity_hour']) ?></td>
+                                    <td><?= $row['hourly_count'] ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
                 <?php else: ?>
-                    <p>No daily activity data found in the selected period.</p>
+                    <p>No hourly activity data found for the selected date.</p>
                 <?php endif; ?>
             </div>
 
@@ -4333,16 +4328,12 @@ function showReports() {
             });
 
             function applyReportFilters() {
-                const startDate = document.getElementById('report_start_date').value;
-                const endDate = document.getElementById('report_end_date').value;
+                const reportDate = document.getElementById('report_date').value;
                 const selectedUser = document.getElementById('report_user_filter').value;
 
                 let url = '?action=reports&';
-                if (startDate) {
-                    url += `report_start_date=${startDate}&`;
-                }
-                if (endDate) {
-                    url += `report_end_date=${endDate}&`;
+                if (reportDate) {
+                    url += `report_date=${reportDate}&`;
                 }
                 if (selectedUser) {
                     url += `selected_user=${selectedUser}&`;
