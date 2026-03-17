@@ -278,7 +278,7 @@ function showDashboard() {
     $offset = ($page - 1) * $limit;
 
     // Validate sort column to prevent SQL injection
-    $allowed_columns = ['ID', 'RepID', 'Name', 'br_id', 'last_activity'];
+    $allowed_columns = ['ID', 'RepID', 'Name', 'br_id', 'last_activity', 'first_activity'];
     $sort_column = in_array($sort_column, $allowed_columns) ? $sort_column : 'last_activity';
 
     // Validate sort direction
@@ -326,7 +326,7 @@ function showDashboard() {
     $total_pages = ceil($total_records / $limit);
 
     $stmt = $pdo->prepare("
-        SELECT s.*, MAX(ua.rDateTime) as last_activity,
+        SELECT s.*, MAX(ua.rDateTime) as last_activity, MIN(ua.rDateTime) as first_activity,
                CASE
                    WHEN EXISTS (
                        SELECT 1 FROM user_activity ua2
@@ -1251,6 +1251,7 @@ function showDashboard() {
                                         <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">Rep ID <?= $sort_column === 'RepID' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                         <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">Name <?= $sort_column === 'Name' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                         <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">Branch ID <?= $sort_column === 'br_id' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
+                                        <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">First Activity <?= $sort_column === 'first_activity' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                         <th><a href="?action=dashboard&page=active_users&active_users_page=<?= $page ?>&sort_col=<?= $sort_column ?>&sort_dir=<?= $sort_direction ?><?php if (!empty($user_status_filter)): ?>&user_status=<?= $user_status_filter ?><?php endif; ?><?php if (!empty($active_user_filter)): ?>&active_user_filter=<?= $active_user_filter ?><?php endif; ?>">Last Activity <?= $sort_column === 'last_activity' ? ($sort_direction === 'ASC' ? '↑' : '↓') : '' ?></a></th>
                                         <th>Status</th>
                                         <th>Actions</th>
@@ -1263,6 +1264,7 @@ function showDashboard() {
                                             <td><?php echo htmlspecialchars($user['RepID']); ?></td>
                                             <td><?php echo htmlspecialchars($user['Name']); ?></td>
                                             <td><?php echo htmlspecialchars($user['br_id']); ?></td>
+                                            <td><?php echo htmlspecialchars($user['first_activity']); ?></td>
                                             <td><?php echo htmlspecialchars($user['last_activity']); ?></td>
                                             <td>
                                                 <?php if ($user['current_status'] === 'online'): ?>
