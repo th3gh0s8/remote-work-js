@@ -3365,6 +3365,90 @@ function showReports() {
     $stmt->execute([$report_date]);
     $user_durations = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Fetch all users daily time summary for selected date
+    $stmt = $pdo->prepare("
+        SELECT DISTINCT s.ID, s.Name, s.RepID
+        FROM salesrep s
+        INNER JOIN user_activity ua ON s.ID = ua.salesrepTb
+        WHERE DATE(ua.rDateTime) = ? AND s.Actives = 'YES'
+        ORDER BY s.RepID
+    ");
+    $stmt->execute([$report_date]);
+    $all_users_with_activity = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Get detailed activity for each user
+    $all_users_daily_summary = [];
+    foreach ($all_users_with_activity as $user) {
+        $user_id = $user['ID'];
+        
+        // Get all activities for this user on selected date
+        $stmt = $pdo->prepare("
+            SELECT activity_type, rDateTime, duration
+            FROM user_activity
+            WHERE salesrepTb = ? AND DATE(rDateTime) = ?
+            ORDER BY rDateTime ASC
+        ");
+        $stmt->execute([$user_id, $report_date]);
+        $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Calculate times
+        $first_checkin = null;
+        $last_checkout = null;
+        $break_starts = [];
+        $break_ends = [];
+        $total_work_seconds = 0;
+        $total_break_seconds = 0;
+        $checkin_count = 0;
+        $current_work_start = null;
+        $current_break_start = null;
+        
+        foreach ($activities as $activity) {
+            if ($activity['activity_type'] === 'check-in') {
+                if (!$first_checkin) {
+                    $first_checkin = date('h:i A', strtotime($activity['rDateTime']));
+                }
+                $checkin_count++;
+                $current_work_start = strtotime($activity['rDateTime']);
+            }
+            if ($activity['activity_type'] === 'check-out') {
+                $last_checkout = date('h:i A', strtotime($activity['rDateTime']));
+                if ($current_work_start) {
+                    $total_work_seconds += strtotime($activity['rDateTime']) - $current_work_start;
+                    $current_work_start = null;
+                }
+            }
+            if ($activity['activity_type'] === 'break-start') {
+                $break_starts[] = date('h:i A', strtotime($activity['rDateTime']));
+                $current_break_start = strtotime($activity['rDateTime']);
+            }
+            if ($activity['activity_type'] === 'break-end') {
+                $break_ends[] = date('h:i A', strtotime($activity['rDateTime']));
+                if ($current_break_start) {
+                    $total_break_seconds += strtotime($activity['rDateTime']) - $current_break_start;
+                    $current_break_start = null;
+                }
+            }
+        }
+        
+        // Handle ongoing work session
+        if ($current_work_start && !$last_checkout) {
+            $total_work_seconds += time() - $current_work_start;
+        }
+        
+        $all_users_daily_summary[] = [
+            'ID' => $user_id,
+            'Name' => $user['Name'],
+            'RepID' => $user['RepID'],
+            'first_checkin' => $first_checkin,
+            'last_checkout' => $last_checkout,
+            'break_starts' => $break_starts,
+            'break_ends' => $break_ends,
+            'break_count' => count($break_starts),
+            'total_work_seconds' => $total_work_seconds,
+            'checkin_count' => $checkin_count
+        ];
+    }
+
     // Helper function to format seconds to hours:minutes:seconds
     function formatDuration($seconds) {
         $hours = floor($seconds / 3600);
@@ -3774,6 +3858,40 @@ function showReports() {
                 color: #28a745;
             }
 
+            /* Daily Time Summary Table Styles */
+            .daily-time-summary {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 15px;
+                min-width: 800px;
+            }
+
+            .daily-time-summary th {
+                background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                color: white;
+                padding: 15px;
+                text-align: center;
+                font-weight: 600;
+                white-space: nowrap;
+            }
+
+            .daily-time-summary td {
+                padding: 12px;
+                text-align: center;
+                border-bottom: 1px solid #eee;
+                vertical-align: middle;
+                white-space: nowrap;
+            }
+
+            .daily-time-summary tr:hover {
+                background-color: #f8f9fa;
+            }
+
+            .daily-time-summary td strong {
+                color: var(--primary-color);
+                font-size: 1em;
+            }
+
             .stat-card.break-time {
                 border-left-color: #ffc107;
             }
@@ -4012,42 +4130,121 @@ function showReports() {
                         <div class="stat-value"><?= formatDuration($user_work_stats['total_work_seconds']) ?></div>
                         <div class="stat-label">Total Work Time</div>
                     </div>
-                    
+
                     <div class="stat-card break-time">
                         <div class="stat-icon">☕</div>
                         <div class="stat-value"><?= formatDuration($user_work_stats['total_break_seconds']) ?></div>
                         <div class="stat-label">Total Break Time</div>
                     </div>
-                    
+
                     <div class="stat-card net-time">
                         <div class="stat-icon">📊</div>
                         <div class="stat-value"><?= formatDuration($user_work_stats['total_work_seconds'] - $user_work_stats['total_break_seconds']) ?></div>
                         <div class="stat-label">Net Work Time</div>
                     </div>
-                    
+
                     <div class="stat-card sessions">
                         <div class="stat-icon">🔄</div>
                         <div class="stat-value"><?= $user_work_stats['total_sessions'] ?></div>
-                        <div class="stat-label">Work Sessions</div>
+                        <div class="stat-label">Check-ins</div>
                     </div>
-                    
-                    <div class="stat-card avg-session">
-                        <div class="stat-icon">⏲️</div>
-                        <div class="stat-value"><?= formatDuration($user_work_stats['avg_session_duration']) ?></div>
-                        <div class="stat-label">Avg Session Duration</div>
-                    </div>
-                    
-                    <div class="stat-card login-time">
-                        <div class="stat-icon">🕐</div>
-                        <div class="stat-value" style="font-size: 1em;"><?= $user_work_stats['login_time'] ?></div>
-                        <div class="stat-label">Login Time</div>
-                    </div>
-                    
-                    <div class="stat-card logout-time">
-                        <div class="stat-icon">🕑</div>
-                        <div class="stat-value" style="font-size: 1em;"><?= $user_work_stats['logout_time'] ?></div>
-                        <div class="stat-label">Logout Time</div>
-                    </div>
+                </div>
+
+                <!-- Daily Time Summary Table -->
+                <div class="report-card">
+                    <h3>📅 Daily Time Summary - <?= date('F d, Y', strtotime($report_date)) ?></h3>
+                    <table class="daily-time-summary">
+                        <thead>
+                            <tr>
+                                <th>Check In Time</th>
+                                <?php
+                                // Count number of breaks to create dynamic columns
+                                $break_count = 0;
+                                foreach ($user_activity_log as $activity) {
+                                    if ($activity['activity_type'] === 'break-start') {
+                                        $break_count++;
+                                    }
+                                }
+                                
+                                if ($break_count > 0) {
+                                    for ($i = 1; $i <= $break_count; $i++) {
+                                        echo "<th>Break {$i} Start</th>";
+                                    }
+                                    for ($i = 1; $i <= $break_count; $i++) {
+                                        echo "<th>Break {$i} End</th>";
+                                    }
+                                } else {
+                                    echo "<th colspan=\"2\">No Breaks</th>";
+                                }
+                                ?>
+                                <th>Check Out Time</th>
+                                <th>Total Work Hours</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>
+                                    <?php
+                                    // Get first check-in time
+                                    $first_checkin = null;
+                                    foreach ($user_activity_log as $activity) {
+                                        if ($activity['activity_type'] === 'check-in') {
+                                            $first_checkin = date('h:i A', strtotime($activity['rDateTime']));
+                                            break;
+                                        }
+                                    }
+                                    echo $first_checkin ?? 'N/A';
+                                    ?>
+                                </td>
+                                <?php
+                                // Get all break start times
+                                $break_starts = [];
+                                foreach ($user_activity_log as $activity) {
+                                    if ($activity['activity_type'] === 'break-start') {
+                                        $break_starts[] = date('h:i A', strtotime($activity['rDateTime']));
+                                    }
+                                }
+                                
+                                // Get all break end times
+                                $break_ends = [];
+                                foreach ($user_activity_log as $activity) {
+                                    if ($activity['activity_type'] === 'break-end') {
+                                        $break_ends[] = date('h:i A', strtotime($activity['rDateTime']));
+                                    }
+                                }
+                                
+                                // Display break start columns
+                                if ($break_count > 0) {
+                                    for ($i = 0; $i < $break_count; $i++) {
+                                        echo '<td>' . ($break_starts[$i] ?? 'N/A') . '</td>';
+                                    }
+                                    // Display break end columns
+                                    for ($i = 0; $i < $break_count; $i++) {
+                                        echo '<td>' . ($break_ends[$i] ?? 'N/A') . '</td>';
+                                    }
+                                } else {
+                                    echo '<td colspan="2" style="text-align:center;color:#999;">No breaks recorded</td>';
+                                }
+                                ?>
+                                <td>
+                                    <?php
+                                    // Get last check-out time
+                                    $last_checkout = null;
+                                    foreach (array_reverse($user_activity_log) as $activity) {
+                                        if ($activity['activity_type'] === 'check-out') {
+                                            $last_checkout = date('h:i A', strtotime($activity['rDateTime']));
+                                            break;
+                                        }
+                                    }
+                                    echo $last_checkout ?? 'N/A';
+                                    ?>
+                                </td>
+                                <td>
+                                    <strong><?= formatDuration($user_work_stats['total_work_seconds']) ?></strong>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
 
                 <?php if (count($user_work_stats['work_sessions']) > 0): ?>
@@ -4063,14 +4260,14 @@ function showReports() {
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php 
+                                <?php
                                 $session_num = 1;
-                                foreach ($user_work_stats['work_sessions'] as $session): 
+                                foreach ($user_work_stats['work_sessions'] as $session):
                                 ?>
                                     <tr>
                                         <td><?= $session_num++ ?></td>
-                                        <td><?= $session['start'] ?></td>
-                                        <td><?= $session['end'] ?></td>
+                                        <td><?= date('h:i A', strtotime($session['start'])) ?></td>
+                                        <td><?= date('h:i A', strtotime($session['end'])) ?></td>
                                         <td><?= formatDuration($session['duration']) ?></td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -4086,20 +4283,20 @@ function showReports() {
                             <thead>
                                 <tr>
                                     <th>#</th>
-                                    <th>Start Time</th>
-                                    <th>End Time</th>
+                                    <th>Break Start</th>
+                                    <th>Break End</th>
                                     <th>Duration</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php 
+                                <?php
                                 $break_num = 1;
-                                foreach ($user_work_stats['break_sessions'] as $break): 
+                                foreach ($user_work_stats['break_sessions'] as $break):
                                 ?>
                                     <tr>
                                         <td><?= $break_num++ ?></td>
-                                        <td><?= $break['start'] ?></td>
-                                        <td><?= $break['end'] ?></td>
+                                        <td><?= date('h:i A', strtotime($break['start'])) ?></td>
+                                        <td><?= date('h:i A', strtotime($break['end'])) ?></td>
                                         <td><?= formatDuration($break['duration']) ?></td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -4145,6 +4342,74 @@ function showReports() {
         <?php endif; ?>
 
         <div class="reports-container">
+            <!-- All Users Daily Time Summary -->
+            <div class="report-card" style="overflow-x: auto;">
+                <h3>📊 All Users Daily Summary - <?= date('F d, Y', strtotime($report_date)) ?></h3>
+                <?php if (count($all_users_daily_summary) > 0): ?>
+                    <?php
+                    // Find maximum break count across all users
+                    $max_breaks = 0;
+                    foreach ($all_users_daily_summary as $user) {
+                        if ($user['break_count'] > $max_breaks) {
+                            $max_breaks = $user['break_count'];
+                        }
+                    }
+                    ?>
+                    <table class="daily-time-summary">
+                        <thead>
+                            <tr>
+                                <th>Rep ID</th>
+                                <th>Name</th>
+                                <th>Check In</th>
+                                <?php
+                                // Dynamic break columns based on max breaks
+                                if ($max_breaks > 0) {
+                                    for ($i = 1; $i <= $max_breaks; $i++) {
+                                        echo "<th>Break {$i} Start</th>";
+                                    }
+                                    for ($i = 1; $i <= $max_breaks; $i++) {
+                                        echo "<th>Break {$i} End</th>";
+                                    }
+                                } else {
+                                    echo "<th colspan=\"2\">No Breaks</th>";
+                                }
+                                ?>
+                                <th>Check Out</th>
+                                <th>Check-ins</th>
+                                <th>Total Work Hours</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($all_users_daily_summary as $user): ?>
+                                <tr>
+                                    <td><strong><?= htmlspecialchars($user['RepID'] ?? 'N/A') ?></strong></td>
+                                    <td><?= htmlspecialchars($user['Name'] ?? 'N/A') ?></td>
+                                    <td><?= $user['first_checkin'] ?? 'N/A' ?></td>
+                                    <?php
+                                    // Display break columns for this user
+                                    if ($max_breaks > 0) {
+                                        for ($i = 0; $i < $max_breaks; $i++) {
+                                            echo '<td>' . (isset($user['break_starts'][$i]) ? $user['break_starts'][$i] : '<span style="color:#ccc;">-</span>') . '</td>';
+                                        }
+                                        for ($i = 0; $i < $max_breaks; $i++) {
+                                            echo '<td>' . (isset($user['break_ends'][$i]) ? $user['break_ends'][$i] : '<span style="color:#ccc;">-</span>') . '</td>';
+                                        }
+                                    } else {
+                                        echo '<td colspan="2" style="text-align:center;color:#999;">-</td>';
+                                    }
+                                    ?>
+                                    <td><?= $user['last_checkout'] ?? 'N/A' ?></td>
+                                    <td><?= $user['checkin_count'] ?></td>
+                                    <td><strong><?= formatDuration($user['total_work_seconds']) ?></strong></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php else: ?>
+                    <p>No user activity found for the selected date.</p>
+                <?php endif; ?>
+            </div>
+
             <div class="report-card">
                 <h3>Recordings by User</h3>
                 <?php if (count($recordings_by_user) > 0): ?>
