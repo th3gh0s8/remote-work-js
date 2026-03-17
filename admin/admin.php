@@ -3862,34 +3862,36 @@ function showReports() {
             .daily-time-summary {
                 width: 100%;
                 border-collapse: collapse;
-                margin-top: 15px;
+                margin-top: 20px;
                 min-width: 800px;
             }
 
             .daily-time-summary th {
                 background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
                 color: white;
-                padding: 15px;
+                padding: 18px 25px;
                 text-align: center;
                 font-weight: 600;
                 white-space: nowrap;
+                font-size: 0.95em;
             }
 
             .daily-time-summary td {
-                padding: 12px;
+                padding: 16px 20px;
                 text-align: center;
-                border-bottom: 1px solid #eee;
+                border-bottom: 1px solid #e0e0e0;
                 vertical-align: middle;
                 white-space: nowrap;
+                font-size: 0.95em;
             }
 
             .daily-time-summary tr:hover {
-                background-color: #f8f9fa;
+                background-color: #f5f7fb;
             }
 
             .daily-time-summary td strong {
                 color: var(--primary-color);
-                font-size: 1em;
+                font-size: 1.05em;
             }
 
             .stat-card.break-time {
