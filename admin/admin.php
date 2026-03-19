@@ -3413,6 +3413,13 @@ function showReports() {
                     $first_checkin = date('h:i A', strtotime($activity['rDateTime']));
                 }
                 $checkin_count++;
+                
+                // If this is return-from-break and there's an open break session, close it
+                if ($activity['activity_type'] === 'return-from-break' && $current_break_start) {
+                    $total_break_seconds += strtotime($activity['rDateTime']) - $current_break_start;
+                    $current_break_start = null;
+                }
+                
                 $current_work_start = strtotime($activity['rDateTime']);
             }
             if ($activity['activity_type'] === 'check-out') {
@@ -3511,6 +3518,19 @@ function showReports() {
             }
             if ($activity['activity_type'] === 'check-in' || $activity['activity_type'] === 'return-from-break') {
                 $check_in_count++;
+                
+                // If this is return-from-break and there's an open break session, close it
+                if ($activity['activity_type'] === 'return-from-break' && $current_break_start) {
+                    $break_duration = $activity_time - $current_break_start;
+                    $total_break_seconds += $break_duration;
+                    $break_sessions[] = [
+                        'start' => date('Y-m-d H:i:s', $current_break_start),
+                        'end' => date('Y-m-d H:i:s', $activity_time),
+                        'duration' => $break_duration
+                    ];
+                    $current_break_start = null;
+                }
+                
                 $current_work_start = $activity_time;
             }
             if ($activity['activity_type'] === 'check-out') {
