@@ -975,6 +975,11 @@ function showDashboard() {
                 color: #0c5460;
             }
 
+            .badge-return-from-break {
+                background-color: #e2d5f1;
+                color: #5a3d7a;
+            }
+
             .badge-check-out {
                 background-color: #f8d7da;
                 color: #721c24;
@@ -3403,7 +3408,7 @@ function showReports() {
         $current_break_start = null;
         
         foreach ($activities as $activity) {
-            if ($activity['activity_type'] === 'check-in') {
+            if ($activity['activity_type'] === 'check-in' || $activity['activity_type'] === 'return-from-break') {
                 if (!$first_checkin) {
                     $first_checkin = date('h:i A', strtotime($activity['rDateTime']));
                 }
@@ -3497,14 +3502,14 @@ function showReports() {
         
         foreach ($user_activity_log as $activity) {
             $activity_time = strtotime($activity['rDateTime']);
-            
+
             if ($activity['activity_type'] === 'login' && !$login_time) {
                 $login_time = $activity_time;
             }
             if ($activity['activity_type'] === 'logout') {
                 $logout_time = $activity_time;
             }
-            if ($activity['activity_type'] === 'check-in') {
+            if ($activity['activity_type'] === 'check-in' || $activity['activity_type'] === 'return-from-break') {
                 $check_in_count++;
                 $current_work_start = $activity_time;
             }
@@ -4017,6 +4022,11 @@ function showReports() {
                 color: #1b1e21;
             }
 
+            .activity-badge.activity-return-from-break {
+                background-color: #e2d5f1;
+                color: #5a3d7a;
+            }
+
             .activity-badge.activity-quit {
                 background-color: #f5c6cb;
                 color: #721c24;
@@ -4218,10 +4228,10 @@ function showReports() {
                             <tr>
                                 <td>
                                     <?php
-                                    // Get first check-in time
+                                    // Get first check-in time (including return-from-break)
                                     $first_checkin = null;
                                     foreach ($user_activity_log as $activity) {
-                                        if ($activity['activity_type'] === 'check-in') {
+                                        if ($activity['activity_type'] === 'check-in' || $activity['activity_type'] === 'return-from-break') {
                                             $first_checkin = date('h:i A', strtotime($activity['rDateTime']));
                                             break;
                                         }

@@ -691,6 +691,78 @@ function handleFileUpload($conn, $dbConnected = true) {
     }
 }
 
+/**
+ * Check if user is returning from an unexpected session exit (crash, shutdown, etc.)
+ * 
+ * @param mysqli $conn Database connection
+ * @param int $userId User ID
+ * @return bool True if user has a previous incomplete session
+ */
+function isReturningFromUnexpectedExit($conn, $userId) {
+    // Get the most recent activity for this user
+    $query = "SELECT activity_type, rDateTime 
+              FROM user_activity 
+              WHERE salesrepTb = ? 
+              ORDER BY rDateTime DESC 
+              LIMIT 1";
+    
+    $stmt = $conn->prepare($query);
+    if (!$stmt) {
+        error_log("Failed to prepare session check statement: " . $conn->error);
+        return false;
+    }
+    
+    $stmt->bind_param("i", $userId);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($result->num_rows === 0) {
+        $stmt->close();
+        return false; // No previous activity at all
+    }
+    
+    $lastActivity = $result->fetch_assoc();
+    $stmt->close();
+    
+    $lastActivityType = $lastActivity['activity_type'];
+    
+    // If last activity was quit (not logout or check-out), user exited unexpectedly
+    // This indicates a crash, shutdown, or force-close without proper session end
+    if ($lastActivityType === 'quit') {
+        error_log("User $userId is returning from unexpected exit (last activity: quit)");
+        return true;
+    }
+    
+    // If last activity was login or ping without a proper ending, 
+    // it might indicate a crash (heartbeat stopped without logout)
+    // Check if there's a login/ping after the last logout/check-out/quit
+    $query = "SELECT 
+                  MAX(CASE WHEN activity_type IN ('login', 'ping') THEN rDateTime END) as last_start,
+                  MAX(CASE WHEN activity_type IN ('logout', 'check-out', 'quit') THEN rDateTime END) as last_end
+              FROM user_activity 
+              WHERE salesrepTb = ?";
+    
+    $stmt = $conn->prepare($query);
+    if (!$stmt) {
+        return false;
+    }
+    
+    $stmt->bind_param("i", $userId);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $sessionInfo = $result->fetch_assoc();
+    $stmt->close();
+    
+    // If last start is more recent than last end, session was incomplete
+    if ($sessionInfo['last_start'] !== null && 
+        ($sessionInfo['last_end'] === null || $sessionInfo['last_start'] > $sessionInfo['last_end'])) {
+        error_log("User $userId has incomplete session (last_start: {$sessionInfo['last_start']}, last_end: {$sessionInfo['last_end']})");
+        return true;
+    }
+    
+    return false;
+}
+
 function handleLogActivity($conn, $dbConnected = true) {
     try {
         $userId = isset($_POST['userId']) ? intval($_POST['userId']) : 0;
@@ -711,6 +783,16 @@ function handleLogActivity($conn, $dbConnected = true) {
 
         error_log("handleLogActivity - UserId: $userId, ActivityType: $activityType, Duration: $duration");
 
+        // Check if this is a check-in activity and user is returning from unexpected exit
+        $actualActivityType = $activityType;
+        if ($activityType === 'check-in') {
+            if (isReturningFromUnexpectedExit($conn, $userId)) {
+                // User has a previous incomplete session, mark as returning from break
+                $actualActivityType = 'return-from-break';
+                error_log("User $userId check-in converted to return-from-break due to previous incomplete session");
+            }
+        }
+
         $currentDateTime = date('Y-m-d H:i:s'); // Use PHP's date function with consistent format
         $query = "INSERT INTO user_activity (salesrepTb, activity_type, duration, rDateTime) VALUES (?, ?, ?, ?)";
 
@@ -720,12 +802,17 @@ function handleLogActivity($conn, $dbConnected = true) {
             throw new Exception("Prepare failed: " . $conn->error);
         }
 
-        $stmt->bind_param("isds", $userId, $activityType, $duration, $currentDateTime);
+        $stmt->bind_param("isds", $userId, $actualActivityType, $duration, $currentDateTime);
 
         if ($stmt->execute()) {
             $insertId = $stmt->insert_id;
-            error_log("Successfully logged activity via handleLogActivity - UserId: $userId, ActivityType: $activityType, InsertId: $insertId");
-            echo json_encode(['success' => true, 'id' => $insertId]);
+            error_log("Successfully logged activity via handleLogActivity - UserId: $userId, ActivityType: $actualActivityType, InsertId: $insertId");
+            echo json_encode([
+                'success' => true, 
+                'id' => $insertId,
+                'activity_type' => $actualActivityType,
+                'is_return_from_break' => ($actualActivityType === 'return-from-break')
+            ]);
         } else {
             error_log("Failed to execute activity insert in handleLogActivity: " . $stmt->error);
             throw new Exception("Execute failed: " . $stmt->error);
